@@ -1,0 +1,205 @@
+{
+  "type": "viewScreen",
+  "id": "main",
+  "style": {
+    "bgColor": "#000000"
+  },
+  "layout": {
+    "type": "flex",
+    "flexFlow": "column",
+    "mainAlign": "center",
+    "crossAlign": "center"
+  },
+  "children": [
+    {
+      "type": "container",
+      "id": "panel",
+      "commonProps": {
+        "clickable": false,
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "flexFlow": "column",
+        "mainAlign": "center",
+        "crossAlign": "center",
+        "gap": "10dp"
+      },
+      "placement": {
+        "mode": "flow",
+        "width": "340dp",
+        "height": "wrap",
+        "alignSelf": "center"
+      },
+      "children": [
+        {
+          "type": "label",
+          "id": "status",
+          "labelProps": {
+            "text": "Booting..."
+          },
+          "style": {
+            "fontSize": "24sp",
+            "textColor": "#8AB4F8"
+          }
+        },
+        {
+          "type": "label",
+          "id": "code",
+          "labelProps": {
+            "text": ""
+          },
+          "style": {
+            "fontSize": "24sp",
+            "textColor": "#FFD54F"
+          }
+        },
+        {
+          "type": "label",
+          "id": "user",
+          "labelProps": {
+            "text": ""
+          },
+          "style": {
+            "fontSize": "13sp",
+            "textColor": "#9AA0A6"
+          },
+          "placement": {
+            "mode": "flow",
+            "width": "match",
+            "height": "wrap"
+          }
+        },
+        {
+          "type": "label",
+          "id": "answer",
+          "labelProps": {
+            "text": ""
+          },
+          "style": {
+            "fontSize": "16sp",
+            "textColor": "#E8EAED"
+          },
+          "placement": {
+            "mode": "flow",
+            "width": "match",
+            "height": "wrap"
+          }
+        },
+        {
+          "type": "label",
+          "id": "hint",
+          "labelProps": {
+            "text": "点击 Start 或双击 BOOT 键开始说话"
+          },
+          "style": {
+            "fontSize": "13sp",
+            "textColor": "#9AA0A6"
+          }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "id": "buttons",
+      "commonProps": {
+        "clickable": false,
+        "scrollable": false
+      },
+      "layout": {
+        "type": "flex",
+        "flexFlow": "row",
+        "mainAlign": "center",
+        "crossAlign": "center",
+        "gap": "48dp"
+      },
+      "placement": {
+        "mode": "absolute",
+        "align": "bottomMid",
+        "y": "-14dp",
+        "width": "280dp",
+        "height": "88dp"
+      },
+      "children": [
+        {
+          "type": "button",
+          "id": "start",
+          "events": [
+            {
+              "type": "clicked",
+              "action": "xz.start"
+            }
+          ],
+          "style": {
+            "bgColor": "#1A73E8",
+            "radius": "44dp",
+            "padding": "0dp"
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "placement": {
+            "mode": "flow",
+            "width": "88dp",
+            "height": "88dp",
+            "alignSelf": "center"
+          },
+          "children": [
+            {
+              "type": "label",
+              "id": "label",
+              "labelProps": {
+                "text": "Start"
+              },
+              "style": {
+                "fontSize": "15sp",
+                "textColor": "#FFFFFF"
+              }
+            }
+          ]
+        },
+        {
+          "type": "button",
+          "id": "stop",
+          "events": [
+            {
+              "type": "clicked",
+              "action": "xz.stop"
+            }
+          ],
+          "style": {
+            "bgColor": "#3C4043",
+            "radius": "44dp",
+            "padding": "0dp"
+          },
+          "layout": {
+            "type": "flex",
+            "mainAlign": "center",
+            "crossAlign": "center"
+          },
+          "placement": {
+            "mode": "flow",
+            "width": "88dp",
+            "height": "88dp",
+            "alignSelf": "center"
+          },
+          "children": [
+            {
+              "type": "label",
+              "id": "label",
+              "labelProps": {
+                "text": "Stop"
+              },
+              "style": {
+                "fontSize": "15sp",
+                "textColor": "#FFFFFF"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

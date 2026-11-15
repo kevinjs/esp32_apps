@@ -1,0 +1,19 @@
+# node
+node_modules/
+npm-debug.log*
+
+# build outputs that should be regenerated
+dist/
+*.bpk
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 注意：不要在这里写通用的 "build/"。
+# xiaozhi-ui/build 是刻意入库的产物（ESP-Brookesia 在 CMake configure 阶段直接拷贝），
+# 一旦父目录被忽略，git 无法再用 ! 规则恢复其内容。
+# 以后若加入固件工程，请在该子目录内用局部 .gitignore 忽略 build/、sdkconfig 等。

@@ -1,0 +1,32 @@
+{
+  "package": {
+    "id": "esp.brookesia.app.xiaozhi",
+    "name": {
+      "en": "XiaoZhi",
+      "zh_CN": "小智"
+    },
+    "version": "0.1.0",
+    "visible": true,
+    "systems": [
+      "super"
+    ]
+  },
+  "runtime": {
+    "type": "JavaScript",
+    "entry": "app/main.js",
+    "resource_dir": "res",
+    "arguments": []
+  },
+  "services": [
+    {
+      "name": "AgentManager",
+      "component": "brookesia_agent_manager",
+      "version": "0.8.2"
+    },
+    {
+      "name": "XiaoZhi",
+      "component": "brookesia_agent_xiaozhi",
+      "version": "0.8.2"
+    }
+  ]
+}
