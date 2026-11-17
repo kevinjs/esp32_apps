@@ -1,0 +1,13 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "gmeter_imu.c"
+        "gmeter_filter.c"
+        "gmeter_ui.c"
+    INCLUDE_DIRS
+        "."
+    PRIV_REQUIRES
+        esp_driver_i2c
+        esp_driver_gpio
+        esp_timer
+)

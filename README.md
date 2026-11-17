@@ -7,6 +7,7 @@ ESP32 平台上跑的应用、UI 前端与配套资源集合。每个应用一�
 | 目录 | 说明 | 目标硬件 | 状态 |
 | --- | --- | --- | --- |
 | [`xiaozhi-ui`](./xiaozhi-ui) | ESP-Brookesia **v0.8** 运行时（JavaScript）应用的"小智"语音助手前端：状态显示、Start/Stop、对话文本、BOOT 键手势 | ESP32-S3 + CO5300 AMOLED 466×466（Waveshare ESP32-S3-Touch-AMOLED-1.75C 实测） | 可用，临时适配 v0.8 |
+| [`ride-gmeter`](./ride-gmeter) | 骑行加速度指示器（ESP-IDF 原生 C）：QMI8658 去重力 + 滤波 + 零偏标定，圆形屏幕气泡界面 + 串口数据流 | Waveshare ESP32-S3-Touch-AMOLED-1.75C（板载 QMI8658） | 阶段二可用（气泡界面） |
 
 ## 目录约定
 

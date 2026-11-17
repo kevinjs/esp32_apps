@@ -1,0 +1,8 @@
+dependencies:
+  idf: ">=5.5"
+
+  # 板级支持包：提供 I2C(SDA=15/SCL=14)、显示、触摸、音频的板级初始化
+  waveshare/esp32_s3_touch_amoled_1_75c: "^3.0.0"
+
+  # QMI8658 六轴 IMU 驱动（I2C 7 位地址 0x6B）
+  waveshare/qmi8658: "^2.0.0"
