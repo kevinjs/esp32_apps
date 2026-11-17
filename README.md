@@ -12,9 +12,15 @@ ESP32 平台上跑的应用、UI 前端与配套资源集合。每个应用一�
 ## 目录约定
 
 - 一个应用一个子目录，目录名用小写加连字符
-- 子目录内必须有 `README.md`，写明构建方式、集成方式和已知限制
+- 子目录内必须有 `README.md`，写明构建方式、集成方式和已知问题
 - `build/` 是否入库由各应用决定：`xiaozhi-ui` 刻意入库，因为 ESP-Brookesia 在 CMake 配置阶段直接 `file(COPY)` 该目录，不会自动调用 `npm run build`
 - 不提交 `node_modules/`、`dist/`、`*.bpk`
+- 所有应用共用 `partitions/fleet.csv`（镜像切换方案的唯一分区表），不要各自维护
+- 应用必须链接 `components/boot_switch`，否则进入应用后无法回到启动选择器
+
+## 设计文档
+
+- [多 app 镜像管理方案](./docs/multi-app-image-management.md)：为什么不做 Brookesia 融合、分区表布局、镜像库结构、启动切换流程
 
 ## 相关仓库
 

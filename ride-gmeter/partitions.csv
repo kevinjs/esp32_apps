@@ -1,5 +1,10 @@
-# Name,   Type, SubType, Offset,   Size, Flags
-nvs,      data, nvs,     0x9000,   0x6000,
-phy_init, data, phy,     0xf000,   0x1000,
-factory,  app,  factory, 0x10000,  4M,
-storage,  data, spiffs,  ,         8M,
+# 副本：来源 ../partitions/fleet.csv，请勿单独修改
+# 方案说明见 ../docs/multi-app-image-management.md
+#
+# Name,     Type, SubType,  Offset,     Size,       Flags
+nvs,        data, nvs,      0x9000,     0x6000,
+phy_init,   data, phy,      0xF000,     0x1000,
+otadata,    data, ota,      0x10000,    0x2000,
+factory,    app,  factory,  0x20000,    0x300000,
+ota_0,      app,  ota_0,    0x320000,   0x400000,
+storage,    data, littlefs, 0x720000,   0x1400000,

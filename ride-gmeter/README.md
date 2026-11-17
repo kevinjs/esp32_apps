@@ -21,10 +21,19 @@
 cd d:\code\esp32_learning\esp32_apps\ride-gmeter
 idf.py set-target esp32s3
 idf.py build
-idf.py -p COMx flash monitor
+
+# selector 落地前：写到 factory 槽（otadata 为空时 bootloader 就启动 factory）
+..\tools\flash_app.ps1 -Bin build\ride-gmeter.bin -Slot selector -Port COMx
+
+# selector 落地后：改写到运行槽 ota_0，由 selector 选择启动
+# ..\tools\flash_app.ps1 -Bin build\ride-gmeter.bin -Slot 0 -Port COMx
+
+idf.py -p COMx monitor
 ```
 
 控制台走 **USB Serial JTAG**（板载 Type-C 直连 ESP32-S3 原生 USB），`monitor` 的波特率无意义，直接 `idf.py -p COMx monitor` 即可。
+
+分区表已迁移到统一表 `../partitions/fleet.csv`（副本 `partitions.csv`）：`factory` 放 selector、`ota_0` 放本应用、`storage` 放镜像库。`nvs` 的偏移和大小未变，标定数据不会因为换分区表而丢失。
 
 ## 串口输出
 
