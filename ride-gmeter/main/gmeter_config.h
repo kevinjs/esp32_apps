@@ -87,3 +87,9 @@
 
 /** 按键消抖时间（ms） */
 #define GMETER_BUTTON_DEBOUNCE_MS   50
+
+/** 短按松开的最长按压时间（ms）：超过这个时长不再触发重标定 */
+#define GMETER_BUTTON_RECAL_MAX_HOLD_MS     1000
+
+/** 长按回到 selector 的时间（ms），由 boot_switch 组件接管 */
+#define GMETER_BUTTON_SELECTOR_HOLD_MS      3000

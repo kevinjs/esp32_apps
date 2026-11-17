@@ -7,7 +7,7 @@
  *      （ax/ay/az 是**去重力后**的线性加速度，单位 m/s²）
  *   2) 1Hz 注释行（以 '#' 开头，不会污染串口绘图）：重力向量与俯仰/横滚角
  *
- * BOOT 键（GPIO0）按下 = 重新做一次静止标定。
+ * BOOT 键（GPIO0）：短按松开 = 重新做一次静止标定；长按 3 秒 = 返回 selector。
  *
  * 验证方法见 README：静止 / 直线加速 / 急刹 / 压弯 四组动作。
  */
@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "boot_switch.h"
 #include "gmeter_config.h"
 #include "gmeter_filter.h"
 #include "gmeter_imu.h"
@@ -31,7 +32,7 @@ static gmeter_filter_t s_filter;
 static volatile bool s_recal_request = false;
 
 /* -------------------------------------------------------------------------- */
-/*  BOOT 键：重新标定                                                          */
+/*  BOOT 键：短按重标定 / 长按回 selector                                       */
 /* -------------------------------------------------------------------------- */
 
 static void button_init(void)
@@ -46,20 +47,30 @@ static void button_init(void)
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&cfg));
-    ESP_LOGI(TAG, "BOOT (GPIO%d) = recalibrate", GMETER_BUTTON_GPIO);
+    ESP_LOGI(TAG, "BOOT (GPIO%d): short press = recalibrate, hold %d ms = selector",
+             GMETER_BUTTON_GPIO, GMETER_BUTTON_SELECTOR_HOLD_MS);
 }
 
-/** @brief 轮询 BOOT 键，检测到下降沿（带消抖）时置位重标定请求。 */
+/**
+ * @brief 轮询 BOOT 键。
+ *
+ * 只在"松开"时判断按压时长：短按触发重标定；长按由 boot_switch 组件在
+ * 达到 SELECTOR_HOLD_MS 时直接重启，走不到这里。
+ */
 static void button_poll(int64_t now_us)
 {
     static int last_level = 1;
-    static int64_t last_press_us = 0;
+    static int64_t press_start_us = 0;
 
     const int level = gpio_get_level(GMETER_BUTTON_GPIO);
-    if (level == 0 && last_level == 1 &&
-        (now_us - last_press_us) > (int64_t)GMETER_BUTTON_DEBOUNCE_MS * 1000) {
-        last_press_us = now_us;
-        s_recal_request = true;
+    if (level == 0 && last_level == 1) {
+        press_start_us = now_us;
+    } else if (level == 1 && last_level == 0) {
+        const int64_t held_ms = (now_us - press_start_us) / 1000;
+        if (held_ms >= GMETER_BUTTON_DEBOUNCE_MS &&
+            held_ms <= GMETER_BUTTON_RECAL_MAX_HOLD_MS) {
+            s_recal_request = true;
+        }
     }
     last_level = level;
 }
@@ -206,6 +217,15 @@ void app_main(void)
 
     ESP_LOGI(TAG, "=== ride-gmeter / milestone 1: linear acceleration probe ===");
 
+    /*
+     * 启动守护：长按 BOOT 回 selector；连续多次启动未标记成功则自动回退。
+     * 尽早调用，放在标定和界面之前——真出问题时也不会卡在 2 秒标定里。
+     */
+    boot_switch_config_t boot_cfg = BOOT_SWITCH_CONFIG_DEFAULT();
+    boot_cfg.boot_key_gpio = GMETER_BUTTON_GPIO;
+    boot_cfg.boot_key_hold_ms = GMETER_BUTTON_SELECTOR_HOLD_MS;
+    boot_switch_init(&boot_cfg);
+
     esp_err_t err = gmeter_imu_init();
     if (err != ESP_OK) {
         /* 不 abort：保持任务运行，串口里仍能看到心跳与错误计数，便于定位 */
@@ -238,4 +258,7 @@ void app_main(void)
     BaseType_t ret = xTaskCreatePinnedToCore(gmeter_task, "gmeter",
                                             6144, NULL, 5, NULL, 1);
     ESP_ERROR_CHECK(ret == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+
+    /* UI 与采样任务都已起来，本次启动算成功，清零失败计数 */
+    boot_switch_mark_boot_ok();
 }

@@ -49,7 +49,7 @@ idf.py -p COMx monitor
 - `gx/gy/gz`：角速度（°/s）
 - `#` 开头的行是注释，串口绘图工具通常会忽略
 
-按 **BOOT 键（GPIO0）** 可随时重新标定（保持静止 2 秒）。
+**BOOT 键（GPIO0）**：短按松开 = 重新标定（保持静止 2 秒）；长按 3 秒 = 返回 selector。
 
 ## 屏幕界面（阶段二）
 
@@ -74,7 +74,7 @@ idf.py -p COMx monitor
 
 - 气泡位置 = `横向(加速度Y) × 23 px`、`纵向(加速度X) × -23 px`，满量程 6 m/s² 对应 140 px。
 - **装到车把上如果方向反了**，改 `gmeter_config.h` 里的 `GMETER_UI_LONG_SIGN` / `GMETER_UI_LAT_SIGN`（或交换 `GMETER_UI_AXIS_LONG/LAT`）。
-- 按 **BOOT 键**重新标定，屏幕会先显示 `CALIBRATING`，完成后变回 `READY`。
+- 短按 **BOOT 键**重新标定，屏幕会先显示 `CALIBRATING`，完成后变回 `READY`；长按 3 秒返回 selector。
 - 静止时数字与气泡都几乎不动，这是死区 + 低通在起作用，属正常现象。
 
 ## 采集工具

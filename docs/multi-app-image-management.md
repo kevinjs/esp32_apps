@@ -149,6 +149,8 @@ esp_err_t boot_switch_set_boot_slot(const char *label);          // 切到指定
 
 防启动循环：NVS 记 `boot_attempts`，`init` 时 +1，`mark_boot_ok` 清零；连续 3 次未标记成功 → 自动回 factory。
 
+按键语义（以 ride-gmeter 为例）：短按松开（≤1s）= 重新标定；长按 3s = 回 selector。`button_poll()` 只在松开时判断按压时长，长按由 `boot_switch` 在 3s 时刻直接重启，两条路径不会互相触发。1~3s 之间是死区，双方都不响应。
+
 ## 5. 关键风险与对策
 
 | 风险 | 说明 | 对策 |
@@ -166,7 +168,7 @@ esp_err_t boot_switch_set_boot_slot(const char *label);          // 切到指定
 | --- | --- | --- |
 | M1 | 统一分区表、`boot_switch` 组件、PC 端打包/烧录脚本 | 已完成 |
 | M2 | selector app：SPIFFS 扫描、LVGL 列表、OTA 写入进度 | 本轮完成 |
-| M3 | ride-gmeter 接入 `boot_switch` + 退出入口；第二个 app 接入验证 | 待开始 |
+| M3 | ride-gmeter 接入 `boot_switch` + 退出入口；第二个 app 接入验证 | 本轮完成（第二个 app 待接入） |
 | M4 | （可选）自动启动上次 app、图标与中文名称（manifest） | 待评估 |
 | M5 | （可选）Android USB 直刷工具作为救砖兜底 | 待评估 |
 | M6 | （可选）Brookesia super 作为 `ota_0` 里的一个镜像接入 | 待评估 |
