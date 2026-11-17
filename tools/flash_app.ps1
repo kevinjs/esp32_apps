@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     按分区表把 app 写到指定槽位（不要用 idf.py flash）。
 
@@ -7,9 +7,9 @@
     本脚本按固定偏移写入，只动目标分区，nvs（标定/配网）不受影响。
 
     分区偏移来自 partitions/fleet.csv：
-        factory(selector)  0x20000   3MB
-        ota_0(运行槽)      0x320000  4MB
-        storage(镜像库)    0x720000  20MB
+        factory(selector)  0x20000    2MB
+        ota_0(运行槽)      0x220000   8MB   ← 可容纳尺寸较大的 app
+        storage(镜像库)    0xA20000   21MB  ← 由 pack_storage.ps1 写入
 
 .PARAMETER Bin
     app 镜像，通常是 build/<project>.bin
@@ -21,7 +21,7 @@
     .\flash_app.ps1 -Bin ..\ride-gmeter\build\ride-gmeter.bin -Slot 0 -Port COM3
 
 .EXAMPLE
-    .\flash_app.ps1 -Bin .\selector\build\selector.bin -Slot selector -Port COM3
+    .\flash_app.ps1 -Bin ..\selector\build\selector.bin -Slot selector -Port COM3
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Bin,
@@ -35,7 +35,7 @@ $ErrorActionPreference = "Stop"
 
 $offsets = @{
     "selector" = "0x20000"
-    "0"        = "0x320000"
+    "0"        = "0x220000"
 }
 
 if (-not (Test-Path -LiteralPath $Bin)) {
@@ -44,6 +44,15 @@ if (-not (Test-Path -LiteralPath $Bin)) {
 
 $offset = $offsets[$Slot]
 $size = (Get-Item -LiteralPath $Bin).Length
+
+# ota_0 是 8MB，超出会被 selector 拒绝启动，这里先挡一次
+if ($Slot -eq "0" -and $size -gt 0x800000) {
+    throw ("镜像 {0:N0} 字节超过 ota_0 分区 8MB，请先调整 partitions/fleet.csv" -f $size)
+}
+if ($Slot -eq "selector" -and $size -gt 0x200000) {
+    throw ("镜像 {0:N0} 字节超过 factory 分区 2MB" -f $size)
+}
+
 Write-Host ("写入 {0} -> {1} ({2:N0} 字节)" -f (Split-Path $Bin -Leaf), $Slot, $size)
 
 $esptoolArgs = @(

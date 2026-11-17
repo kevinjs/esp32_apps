@@ -66,36 +66,41 @@ s_red_ms += 33;   // 红色保持计时
 | `nvs` | data/nvs | 0x9000 | 0x6000 | 标定零偏、配网信息（**保持原偏移与大小，迁移不丢数据**） |
 | `phy_init` | data/phy | 0xF000 | 0x1000 | 射频校准 |
 | `otadata` | data/ota | 0x10000 | 0x2000 | 启动槽选择 |
-| `factory` | app/factory | 0x20000 | 0x300000 | selector（常驻，不被覆盖） |
-| `ota_0` | app/ota_0 | 0x320000 | 0x400000 | 运行槽，任一 app 写这里 |
-| `storage` | data/littlefs | 0x720000 | 0x1400000 (20MB) | 镜像库、图标、资源 |
+| `factory` | app/factory | 0x20000 | 0x200000 (2MB) | selector（常驻，不被覆盖） |
+| `ota_0` | app/ota_0 | 0x220000 | 0x800000 (8MB) | 运行槽，任一 app 写这里 |
+| `storage` | data/spiffs | 0xA20000 | 0x1500000 (21MB) | 镜像库 |
 
-剩余约 4.9MB 未分配，留给后续扩展（第二个槽或第二块 storage）。
+剩余约 0.9MB 未分配。
 
 ### 4.2 为什么是"库 + 单运行槽"，不是"2~6 个槽"
 
-实测 ride-gmeter 的 `build/ride-gmeter.bin` 只有 **723,792 字节（707KB）**。即使加上 LVGL、BSP、字体，原生 app 通常在 0.7~1.5MB。
+实测 ride-gmeter 的 `build/ride-gmeter.bin` 只有 **723,792 字节（707KB）**，但**不能假设所有 app 都这么小**：带音频解码、FFT、波形渲染或资源打包的 app 可能是 3~6MB，Brookesia 规模的应用更大。
 
-因此"多槽"带来的收益（切换不用拷贝）远小于成本（槽位管理、"哪个槽空闲"、每槽 4MB 浪费）。改成：
+固定多槽的问题就在这里：槽大小必须按最大的 app 规划，小 app 会浪费 80% 空间；而槽数量一旦定死，大 app 就装不下第二个。
 
-- 20MB 的 `storage` 里放 **任意数量** 的 app 镜像（按 0.8MB 算约 25 个）；
+改成"库 + 单运行槽"：
+
+- `storage` 里放 **任意数量、任意大小** 的镜像（21MB，按 0.8MB 算约 25 个，或 3 个 6MB 的大应用）；
 - 选择后由 selector 从 storage 读出，`esp_ota_write` 到 `ota_0`，`esp_ota_set_boot_partition()`，重启；
-- 写入 700KB 约 2~3s，用户感知与"秒切"差距很小。
+- `ota_0` 给到 8MB，覆盖可预见的最大 app；写入 700KB 约 2~3s，8MB 约 15~20s；
+- 写入前由 selector 校验 `镜像大小 ≤ 目标分区大小`、`esp_app_desc` 魔数与项目名，超限直接报错而不是写到一半失败。
 
-用户视角完全等价："板子里装了 6 个 app，点一下就换"。如果以后确实需要瞬时切换，把 storage 缩到 16MB、切出 `ota_1` 即可，表结构不用重设计。
+用户视角完全等价："板子里装了 6 个 app，点一下就换"。只有一种情况会不方便：两个都接近 8MB 的 app 频繁互切，每次要等拷贝。真遇到时把 storage 缩到 13MB、切出 `ota_1` 做 A/B 即可，表结构不用重设计。
 
-### 4.3 镜像库结构（storage 分区）
+### 4.3 镜像库结构（storage 分区，SPIFFS 平铺）
 
 ```
-storage/
+/storage
 ├── manifest.json
 ├── app-gmeter-1.0.0.bin
 ├── app-xiaozhi-0.3.1.bin
-├── app-metronome-0.1.0.bin
-└── icons/
-    ├── gmeter.png
-    └── xiaozhi.png
+├── app-musicwave-0.1.0.bin
+├── icon-gmeter.png
+└── icon-xiaozhi.png
 ```
+
+- SPIFFS 没有目录，全部平铺，对象名上限 31 字符；
+- 选 SPIFFS 而不是 LittleFS：`spiffsgen.py` 随 IDF 发布，PC 端打包零外部依赖；本方案里 storage 是**只读的**（运行时只读镜像，写入只发生在 PC 打包后整分区烧录），LittleFS 的掉电一致性优势用不上。
 
 `manifest.json`：
 
@@ -111,7 +116,7 @@ storage/
       "bin": "app-gmeter-1.0.0.bin",
       "size": 723792,
       "sha256": "...",
-      "icon": "icons/gmeter.png"
+      "icon": "icon-gmeter.png"
     }
   ]
 }
@@ -124,10 +129,9 @@ storage/
 ```
 上电
  └─ bootloader → 按 otadata 启动
-     ├─ factory(selector)：扫描 storage → 显示列表 → 3s 倒计时自动启动上次 app
-     │    └─ 选中 → 校验 → 写 ota_0 → set_boot(ota_0) → 重启
+     ├─ factory(selector)：扫描 storage → 触摸选择 → 校验大小 → 写 ota_0 → 重启
      └─ ota_0(app)：正常运行
-          └─ 退出（长按/触摸手势）→ set_boot(factory) → 重启
+          └─ 退出（长按 BOOT / 触摸手势）→ 擦 otadata → 重启回 selector
 ```
 
 ### 4.5 `boot_switch` 共享组件（每个 app 必链）
@@ -153,25 +157,27 @@ esp_err_t boot_switch_set_boot_slot(const char *label);          // 切到指定
 | 启动循环 | 新写入的 app 一开机就 panic，会卡死重启 | `boot_attempts` 计数 + 自动回 factory |
 | 切 app 丢标定 | 旧的整段镜像写入会覆盖 `nvs` | 分区表保持 `nvs` 偏移/大小不变；日常切换只写 `ota_0` 或 `storage` |
 | 开发时烧错槽 | `idf.py flash` 会把 app 写到 `factory`（覆盖 selector） | 开发统一用 `tools/flash_app.ps1 -Slot` 显式指定偏移 |
-| LittleFS 掉电 | 反复写镜像文件，SPIFFS 掉电一致性差 | `storage` 用 `littlefs` 子类型 |
-| 镜像不匹配 | 旧分区表编译的 bin 写进新表 | manifest 记 `partition_table` 版本，selector 拒绝不匹配项 |
+| 镜像比运行槽大 | 大 app（音频解码、波形）可能超过 8MB | selector 写入前比较 `镜像大小 vs ota_0->size` 并报错；扩容需改表重刷 |
+| 镜像不匹配 | 旧分区表编译的 bin 写进新表 | manifest 记 `partition_table` 指纹；selector 另校验 `esp_app_desc` 魔数 |
 
 ## 6. 路线图
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
-| M1 | 统一分区表、`boot_switch` 组件、PC 端打包/烧录脚本 | 本轮完成 |
-| M2 | selector app：LittleFS 扫描、LVGL 列表、OTA 写入进度、倒计时启动 | 待开始 |
+| M1 | 统一分区表、`boot_switch` 组件、PC 端打包/烧录脚本 | 已完成 |
+| M2 | selector app：SPIFFS 扫描、LVGL 列表、OTA 写入进度 | 本轮完成 |
 | M3 | ride-gmeter 接入 `boot_switch` + 退出入口；第二个 app 接入验证 | 待开始 |
-| M4 | （可选）Android USB 直刷工具作为救砖兜底 | 待评估 |
-| M5 | （可选）Brookesia super 作为 `ota_0` 里的一个镜像接入 | 待评估 |
+| M4 | （可选）自动启动上次 app、图标与中文名称（manifest） | 待评估 |
+| M5 | （可选）Android USB 直刷工具作为救砖兜底 | 待评估 |
+| M6 | （可选）Brookesia super 作为 `ota_0` 里的一个镜像接入 | 待评估 |
 
 ## 7. 本轮产出
 
 - `partitions/fleet.csv`：统一分区表（唯一事实来源）
 - `components/boot_switch/`：启动切换/回退共享组件
+- `selector/`：启动选择器（SPIFFS 扫描 + 列表 + OTA 安装 + 进度）
 - `tools/flash_app.ps1`：按槽位烧录 app
-- `tools/pack_storage.ps1`：扫描镜像目录 → 生成 manifest → 打包 LittleFS → 可选烧录
+- `tools/pack_storage.ps1`：扫描镜像目录 → 生成 manifest → `spiffsgen.py` 打包 → 可选烧录
 - `ride-gmeter/partitions.csv`：迁移到统一分区表
 
 ## 8. 备忘：本方案不解决的问题
