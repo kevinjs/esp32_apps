@@ -1,0 +1,300 @@
+#include "xz_audio.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+#include "bsp/esp-bsp.h"
+#include "driver/i2s_std.h"
+#include "esp_audio_dec.h"
+#include "esp_audio_enc.h"
+#include "esp_codec_dev.h"
+#include "esp_log.h"
+#include "esp_opus_dec.h"
+#include "esp_opus_enc.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "sdkconfig.h"
+
+#include "xz_config.h"
+
+static const char *TAG = "xz.audio";
+
+/* 60ms @16k@24kbps 约 180 字节，留足余量 */
+#define OPUS_PACKET_MAX     1024
+#define DECODE_PCM_MAX      4096
+
+typedef struct {
+    uint8_t *data;
+    size_t   len;
+} play_item_t;
+
+static esp_codec_dev_handle_t s_spk = NULL;
+static esp_codec_dev_handle_t s_mic = NULL;
+
+static void *s_enc = NULL;
+static void *s_dec = NULL;
+
+static QueueHandle_t s_play_queue = NULL;
+static TaskHandle_t s_capture_task = NULL;
+static TaskHandle_t s_play_task = NULL;
+
+static volatile bool s_capturing = false;
+static volatile bool s_running = false;
+static volatile bool s_playing = false;
+
+static xz_audio_capture_cb_t s_capture_cb = NULL;
+static void *s_capture_ctx = NULL;
+
+/* -------------------------------------------------------------------------- */
+
+static i2s_std_config_t make_i2s_config(void)
+{
+    i2s_std_config_t cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(XZ_AUDIO_SAMPLE_RATE),
+        .slot_cfg = I2S_STD_PHILIP_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
+                                                       I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+            .mclk = BSP_I2S_MCLK,
+            .bclk = BSP_I2S_SCLK,
+            .ws = BSP_I2S_LCLK,
+            .dout = BSP_I2S_DOUT,
+            .din = BSP_I2S_DSIN,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
+            },
+        },
+    };
+    return cfg;
+}
+
+static esp_err_t opus_codec_init(void)
+{
+    esp_opus_enc_config_t enc_cfg = ESP_OPUS_ENC_CONFIG_DEFAULT();
+    enc_cfg.sample_rate = XZ_AUDIO_SAMPLE_RATE;
+    enc_cfg.channel = 1;
+    enc_cfg.bits_per_sample = 16;
+    enc_cfg.bitrate = XZ_OPUS_BITRATE;
+    enc_cfg.frame_duration = ESP_OPUS_ENC_FRAME_DURATION_60_MS;
+    enc_cfg.application_mode = ESP_OPUS_ENC_APPLICATION_VOIP;
+    enc_cfg.complexity = XZ_OPUS_COMPLEXITY;
+    enc_cfg.enable_vbr = false;
+
+    esp_audio_err_t err = esp_opus_enc_open(&enc_cfg, sizeof(enc_cfg), &s_enc);
+    if (err != ESP_AUDIO_ERR_OK) {
+        ESP_LOGE(TAG, "opus enc open failed: %d", err);
+        return ESP_FAIL;
+    }
+
+    esp_opus_dec_cfg_t dec_cfg = ESP_OPUS_DEC_CONFIG_DEFAULT();
+    dec_cfg.sample_rate = XZ_AUDIO_SAMPLE_RATE;
+    dec_cfg.channel = 1;
+    dec_cfg.frame_duration = ESP_OPUS_DEC_FRAME_DURATION_INVALID;
+    dec_cfg.self_delimited = false;
+
+    err = esp_opus_dec_open(&dec_cfg, sizeof(dec_cfg), &s_dec);
+    if (err != ESP_AUDIO_ERR_OK) {
+        ESP_LOGE(TAG, "opus dec open failed: %d", err);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void capture_task(void *arg)
+{
+    uint8_t pcm[XZ_PCM_FRAME_BYTES];
+    uint8_t opus[OPUS_PACKET_MAX];
+
+    ESP_LOGI(TAG, "capture task started (%d bytes/frame)", XZ_PCM_FRAME_BYTES);
+
+    while (s_running) {
+        const int ret = esp_codec_dev_read(s_mic, pcm, sizeof(pcm));
+        if (ret != ESP_CODEC_DEV_OK) {
+            ESP_LOGW(TAG, "mic read failed: %d", ret);
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+        if (!s_capturing || s_capture_cb == NULL) {
+            continue;   /* 半双工静默期：数据丢弃 */
+        }
+
+        esp_audio_enc_in_frame_t in_frame = {
+            .buffer = pcm,
+            .len = sizeof(pcm),
+        };
+        esp_audio_enc_out_frame_t out_frame = {
+            .buffer = opus,
+            .len = sizeof(opus),
+        };
+        if (esp_opus_enc_process(s_enc, &in_frame, &out_frame) != ESP_AUDIO_ERR_OK) {
+            ESP_LOGW(TAG, "opus encode failed");
+            continue;
+        }
+        if (out_frame.encoded_bytes > 0) {
+            s_capture_cb(opus, out_frame.encoded_bytes, s_capture_ctx);
+        }
+    }
+
+    ESP_LOGI(TAG, "capture task exit");
+    s_capture_task = NULL;
+    vTaskDelete(NULL);
+}
+
+static void play_task(void *arg)
+{
+    uint8_t pcm[DECODE_PCM_MAX];
+    play_item_t item;
+
+    while (s_running) {
+        if (xQueueReceive(s_play_queue, &item, pdMS_TO_TICKS(100)) != pdTRUE) {
+            if (s_playing) {
+                s_playing = false;
+            }
+            continue;
+        }
+
+        s_playing = true;
+
+        esp_audio_dec_in_raw_t raw = {
+            .buffer = item.data,
+            .len = item.len,
+        };
+        esp_audio_dec_out_frame_t frame = {
+            .buffer = pcm,
+            .len = sizeof(pcm),
+        };
+        esp_audio_dec_info_t info = {0};
+
+        while (raw.len > 0) {
+            esp_audio_err_t err = esp_opus_dec_decode(s_dec, &raw, &frame, &info);
+            if (err != ESP_AUDIO_ERR_OK || frame.decoded_size == 0) {
+                if (err != ESP_AUDIO_ERR_OK) {
+                    ESP_LOGD(TAG, "opus decode err: %d", err);
+                }
+                break;
+            }
+            esp_codec_dev_write(s_spk, frame.buffer, frame.decoded_size);
+            raw.buffer += raw.consumed;
+            raw.len -= raw.consumed;
+            frame.len = sizeof(pcm);
+        }
+
+        free(item.data);
+        s_playing = false;
+    }
+
+    s_play_task = NULL;
+    vTaskDelete(NULL);
+}
+
+/* -------------------------------------------------------------------------- */
+
+esp_err_t xz_audio_init(xz_audio_capture_cb_t cb, void *ctx)
+{
+    s_capture_cb = cb;
+    s_capture_ctx = ctx;
+
+    i2s_std_config_t i2s_cfg = make_i2s_config();
+    esp_err_t err = bsp_audio_init(&i2s_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "bsp_audio_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    s_spk = bsp_audio_codec_speaker_init();
+    s_mic = bsp_audio_codec_microphone_init();
+    if (s_spk == NULL || s_mic == NULL) {
+        ESP_LOGE(TAG, "codec init failed (spk=%p mic=%p)", s_spk, s_mic);
+        return ESP_FAIL;
+    }
+
+    esp_codec_dev_sample_info_t fs = {
+        .bits_per_sample = XZ_AUDIO_BITS_PER_SAMPLE,
+        .channel = XZ_AUDIO_CHANNELS,
+        .channel_mask = 0,
+        .sample_rate = XZ_AUDIO_SAMPLE_RATE,
+        .mclk_multiple = 0,
+    };
+    if (esp_codec_dev_open(s_spk, &fs) != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "speaker open failed");
+        return ESP_FAIL;
+    }
+    if (esp_codec_dev_open(s_mic, &fs) != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "microphone open failed");
+        return ESP_FAIL;
+    }
+
+    esp_codec_dev_set_out_vol(s_spk, CONFIG_XZ_SPK_VOLUME);
+    esp_codec_dev_set_in_gain(s_mic, (float)CONFIG_XZ_MIC_GAIN_DB);
+
+    if (opus_codec_init() != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    s_play_queue = xQueueCreate(XZ_PLAY_QUEUE_DEPTH, sizeof(play_item_t));
+    if (s_play_queue == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    s_running = true;
+    if (xTaskCreate(play_task, "xz_play", 6144, NULL, 5, &s_play_task) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xTaskCreate(capture_task, "xz_cap", 6144, NULL, 6, &s_capture_task) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "audio ready: %d Hz / %d ch / %d bit, opus %d ms",
+             XZ_AUDIO_SAMPLE_RATE, XZ_AUDIO_CHANNELS, XZ_AUDIO_BITS_PER_SAMPLE,
+             XZ_OPUS_FRAME_MS);
+    return ESP_OK;
+}
+
+esp_err_t xz_audio_set_capture(bool enable)
+{
+    s_capturing = enable;
+    return ESP_OK;
+}
+
+esp_err_t xz_audio_play_opus(const uint8_t *data, size_t len)
+{
+    if (s_play_queue == NULL || data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    play_item_t item = {
+        .data = malloc(len),
+        .len = len,
+    };
+    if (item.data == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    memcpy(item.data, data, len);
+
+    if (xQueueSend(s_play_queue, &item, 0) != pdTRUE) {
+        free(item.data);
+        ESP_LOGW(TAG, "play queue full, drop %u bytes", (unsigned)len);
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+void xz_audio_flush(void)
+{
+    if (s_play_queue == NULL) {
+        return;
+    }
+    play_item_t item;
+    while (xQueueReceive(s_play_queue, &item, 0) == pdTRUE) {
+        free(item.data);
+    }
+}
+
+bool xz_audio_is_busy(void)
+{
+    return s_playing || (s_play_queue != NULL && uxQueueMessagesWaiting(s_play_queue) > 0);
+}

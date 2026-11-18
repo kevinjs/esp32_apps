@@ -1,0 +1,22 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "xz_audio.c"
+        "xz_ui.c"
+        "xz_wifi.c"
+        "xz_chat.c"
+    INCLUDE_DIRS
+        "."
+    PRIV_REQUIRES
+        boot_switch
+        esp_xiaozhi
+        esp_audio_codec
+        esp_codec_dev
+        esp_driver_i2s
+        esp_driver_gpio
+        esp_wifi
+        esp_netif
+        esp_event
+        nvs_flash
+        esp_timer
+)

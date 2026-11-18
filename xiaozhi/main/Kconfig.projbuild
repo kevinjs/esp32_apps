@@ -1,0 +1,34 @@
+menu "Xiaozhi app"
+
+    config XZ_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+        help
+            设备连接的路由器名称。留空时设备启动后停在 "NO WIFI CONFIG" 状态。
+
+    config XZ_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+
+    config XZ_WIFI_MAX_RETRY
+        int "Wi-Fi connect retry count"
+        range 1 20
+        default 5
+
+    config XZ_BOOT_BUTTON_GPIO
+        int "BOOT key GPIO"
+        default 0
+        help
+            BOOT 键 GPIO。长按 3 秒回 selector；短按在应用内开始/停止对话。
+
+    config XZ_MIC_GAIN_DB
+        int "Microphone gain (dB)"
+        range 0 42
+        default 24
+
+    config XZ_SPK_VOLUME
+        int "Speaker volume (0-100)"
+        range 0 100
+        default 70
+
+endmenu
