@@ -31,6 +31,10 @@ static lv_obj_t *s_bar_value = NULL;
 
 static int s_done_ticks = 0;
 static int s_failed_ticks = 0;
+static uint32_t s_created_tick = 0;
+
+/* 触摸控制器上电时可能给出一次假触摸，界面刚出现的这段时间忽略点击 */
+#define CLICK_GUARD_MS  800
 
 /* -------------------------------------------------------------------------- */
 
@@ -50,6 +54,11 @@ static void overlay_show(bool visible)
 static void on_row_clicked(lv_event_t *event)
 {
     if (lv_event_get_code(event) != LV_EVENT_CLICKED || s_select_cb == NULL) {
+        return;
+    }
+
+    if (lv_tick_get() - s_created_tick < CLICK_GUARD_MS) {
+        ESP_LOGI(TAG, "忽略上电初期的触摸事件");
         return;
     }
 
@@ -271,5 +280,6 @@ void selector_ui_create(
 
     create_overlay(screen);
 
+    s_created_tick = lv_tick_get();
     lv_timer_create(poll_timer_cb, 100, NULL);
 }

@@ -36,5 +36,5 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
 - **不要用 `idf.py flash` 烧应用。** 表里有 `factory`，IDF 会把 app 烧到 `0x20000`，直接覆盖 selector。开发时用 `tools/flash_app.ps1 -Slot 0`。
 - **不要改动 `nvs` 的偏移或大小。** 一旦改变，设备会重新初始化 NVS，标定和配网全部丢失。
-- **`storage` 是 SPIFFS**，打包参数必须和 selector 的 `sdkconfig` 一致（page 256 / block 4096 / obj-name 32 / meta 4），统一由 `tools/pack_storage.ps1` 处理，不要手写 `spiffsgen.py` 命令。
+- **`storage` 是 SPIFFS**，打包参数必须和 selector 的 `sdkconfig` 一致（page 512 / block 4096 / obj-name 32 / meta 4），统一由 `tools/pack_storage.ps1` 处理，不要手写 `spiffsgen.py` 命令。page 512 是 21MB 分区的下限：256B 页会产生 86016 个页，超过 `spiffs_page_ix` 的 65535 上限。
 - 改了这张表，`manifest.json` 里的 `partition_table` 指纹会变，镜像库需要重新打包。

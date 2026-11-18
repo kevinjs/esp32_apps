@@ -155,7 +155,7 @@ foreach ($entry in $entries) {
 $storageBin = Join-Path $OutDir "storage.bin"
 $spiffsArgs = @(
     $spiffsgen,
-    "--page-size", "256",
+    "--page-size", "512",
     "--block-size", "4096",
     "--obj-name-len", "32",
     "--meta-len", "4",

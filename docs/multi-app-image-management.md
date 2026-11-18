@@ -187,3 +187,44 @@ esp_err_t boot_switch_set_boot_slot(const char *label);          // 切到指定
 - 不能替代 PC 完成首次烧录（bootloader + 分区表仍需一次 esptool）
 - selector 自身损坏时，只能用路线 A（手机 USB）或 PC 救砖
 - 多 app 共享的 BSP/LVGL 版本仍需人工对齐；manifest 里的 `partition_table` 版本是唯一强制校验，BSP 版本靠约定
+
+## 9. 上板记录（2026-11-18）
+
+环境：ESP32-S3 rev v0.2 / 32MB Flash / 8MB PSRAM / COM3（USB-Serial-JTAG）/ ESP-IDF 6.1。
+
+第一次上板暴露了三个问题，均已修复：
+
+### 9.1 只烧 app 不烧分区表
+
+现象：
+
+```
+E esp_image: image at 0x10000 has invalid magic byte (nothing flashed here?)
+E boot: Factory app partition is not bootable
+```
+
+bootloader 里读到的还是旧布局（`factory 0x10000 4MB`）。补烧 `partition-table.bin` 到 `0x8000` 后正常。已给 `flash_app.ps1` 增加 `-Slot layout`，一次写入 bootloader(`0x0`) + 分区表(`0x8000`)。
+
+### 9.2 SPIFFS 页大小不够
+
+```
+E SPIFFS: spiffs partition is too large for spiffs_page_ix type. Please increase CONFIG_SPIFFS_PAGE_SIZE.
+```
+
+21MB / 256B = 86,016 页，超过 `spiffs_page_ix`（uint16）的 65,535 上限，挂载直接失败。改为 **page 512**（43,008 页），`sdkconfig.defaults` 与 `pack_storage.ps1` 同步修改。
+
+### 9.3 上电假触摸
+
+触摸控制器（CST9217）初始化时可能给出一次假触摸事件，selector 界面刚出现就收到 `CLICKED`，直接把列表第一项装进 `ota_0` 并重启。已在 `selector_ui.c` 加 800ms 点击屏蔽（`CLICK_GUARD_MS`）。
+
+### 9.4 已验证的闭环
+
+- selector 从 storage 正确挂载 SPIFFS、扫描到 `gmeter 1.0.0`
+- 选中后写入 `ota_0` 并 `esp_ota_set_boot_partition`，`otadata` 变为 `ota_seq=1`
+- 重启后 ride-gmeter 从 `ota_0` 正常启动：UI ready、50Hz CSV、2 秒心跳 `ok=1002 err=0`
+
+### 9.5 待验证
+
+- 长按 BOOT 3 秒返回 selector（`boot_switch` 擦 `otadata` 的路径）
+- 掉电重启后仍从 `ota_0` 启动
+- 连续 3 次启动失败自动回退 selector
