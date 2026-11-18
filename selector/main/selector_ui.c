@@ -269,8 +269,9 @@ void selector_ui_create(
 
     lv_obj_t *footer = lv_label_create(screen);
     lv_label_set_text_fmt(
-        footer, "%d images | %.1f / %.1f MB used",
+        footer, "%d %s | %.1f / %.1f MB used",
         count,
+        count == 1 ? "image" : "images",
         (double)fs_used / (1024.0 * 1024.0),
         (double)(fs_total / (1024.0 * 1024.0))
     );
