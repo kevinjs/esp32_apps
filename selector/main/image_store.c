@@ -43,20 +43,20 @@ esp_err_t image_store_init(void)
     }
 
     if (err == ESP_ERR_NOT_FOUND) {
-        ESP_LOGE(TAG, "分区表中没有 storage 分区");
+        ESP_LOGE(TAG, "no storage partition in partition table");
         return err;
     }
 
     /* 首次烧录 / 镜像被破坏：格式化后镜像库为空，用户需要重新 pack_storage 一次 */
-    ESP_LOGW(TAG, "挂载 storage 失败(%s)，尝试格式化", esp_err_to_name(err));
+    ESP_LOGW(TAG, "mount storage failed (%s), trying format", esp_err_to_name(err));
     esp_err_t fmt_err = esp_spiffs_format(STORAGE_LABEL);
     if (fmt_err != ESP_OK) {
-        ESP_LOGE(TAG, "格式化 storage 失败: %s", esp_err_to_name(fmt_err));
+        ESP_LOGE(TAG, "format storage failed: %s", esp_err_to_name(fmt_err));
         return fmt_err;
     }
     err = esp_vfs_spiffs_register(&conf);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "格式化后仍无法挂载: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "mount still failed after format: %s", esp_err_to_name(err));
     }
     return err;
 }
@@ -117,7 +117,7 @@ int image_store_scan(image_entry_t *out, int max_count)
 
     DIR *dir = opendir(STORAGE_BASE);
     if (dir == NULL) {
-        ESP_LOGW(TAG, "无法打开 %s", STORAGE_BASE);
+        ESP_LOGW(TAG, "cannot open %s", STORAGE_BASE);
         return 0;
     }
 
@@ -130,7 +130,7 @@ int image_store_scan(image_entry_t *out, int max_count)
         image_entry_t parsed = {0};
         esp_err_t err = load_descriptor(entry->d_name, &parsed);
         if (err != ESP_OK) {
-            ESP_LOGW(TAG, "跳过无效镜像 %s (%s)", entry->d_name, esp_err_to_name(err));
+            ESP_LOGW(TAG, "skipping invalid image %s (%s)", entry->d_name, esp_err_to_name(err));
             continue;
         }
         out[count++] = parsed;
@@ -138,7 +138,7 @@ int image_store_scan(image_entry_t *out, int max_count)
     closedir(dir);
 
     qsort(out, count, sizeof(out[0]), compare_entries);
-    ESP_LOGI(TAG, "镜像库共 %d 个可用镜像", count);
+    ESP_LOGI(TAG, "image library: %d usable images", count);
     return count;
 }
 

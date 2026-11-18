@@ -37,7 +37,7 @@ static esp_err_t open_nvs(nvs_handle_t *out)
     err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         /* 这里刻意不擦除：nvs 里存着 IMU 零偏和配网信息，宁可本次不计数。 */
-        ESP_LOGE(TAG, "NVS 需要重新初始化(%s)，为保护标定数据不做自动擦除", esp_err_to_name(err));
+        ESP_LOGE(TAG, "NVS needs reinit (%s); not erasing to keep calibration", esp_err_to_name(err));
         return err;
     }
     if (err != ESP_OK) {
@@ -77,7 +77,7 @@ static void resolve_running_partition(void)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
     if (running == NULL) {
-        ESP_LOGW(TAG, "无法确定当前运行分区");
+        ESP_LOGW(TAG, "cannot determine running partition");
         return;
     }
     strncpy(s_running_slot, running->label, sizeof(s_running_slot) - 1);
@@ -109,11 +109,11 @@ static void boot_key_task(void *arg)
             } else if (!triggered &&
                        (now_us - hold_start_us) / 1000 >= (int64_t)s_config.boot_key_hold_ms) {
                 triggered = true;
-                ESP_LOGW(TAG, "BOOT(GPIO%d) 长按 %u ms，返回 selector",
+                ESP_LOGW(TAG, "BOOT(GPIO%d) held %u ms, returning to selector",
                          s_config.boot_key_gpio, (unsigned)s_config.boot_key_hold_ms);
                 esp_err_t err = boot_switch_request_selector();
                 if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "返回 selector 失败: %s", esp_err_to_name(err));
+                    ESP_LOGE(TAG, "return to selector failed: %s", esp_err_to_name(err));
                 }
             }
         } else {
@@ -136,13 +136,13 @@ static void start_boot_key_watch(void)
     };
     esp_err_t err = gpio_config(&io);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "BOOT 键 GPIO 配置失败: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "BOOT GPIO config failed: %s", esp_err_to_name(err));
         return;
     }
 
     BaseType_t created = xTaskCreate(boot_key_task, "boot_switch", 3072, NULL, 3, NULL);
     if (created != pdPASS) {
-        ESP_LOGW(TAG, "BOOT 键监听任务创建失败");
+        ESP_LOGW(TAG, "BOOT key task create failed");
     }
 }
 
@@ -161,21 +161,21 @@ esp_err_t boot_switch_init(const boot_switch_config_t *config)
 
     resolve_running_partition();
     s_initialized = true;
-    ESP_LOGI(TAG, "运行分区: %s%s", s_running_slot,
+    ESP_LOGI(TAG, "running partition: %s%s", s_running_slot,
              s_running_from_selector ? " (selector)" : "");
 
     if (!s_running_from_selector && s_config.max_boot_attempts > 0) {
         const uint8_t tries = read_tries();
         if (tries >= s_config.max_boot_attempts) {
-            ESP_LOGE(TAG, "连续 %u 次启动未标记成功，回退 selector", tries);
+            ESP_LOGE(TAG, "%u failed boots in a row, falling back to selector", tries);
             write_tries(0);
             esp_err_t err = boot_switch_request_selector();
             /* 正常情况下不会返回 */
-            ESP_LOGE(TAG, "回退失败: %s", esp_err_to_name(err));
+            ESP_LOGE(TAG, "fallback failed: %s", esp_err_to_name(err));
             return err;
         }
         write_tries((uint8_t)(tries + 1));
-        ESP_LOGI(TAG, "启动尝试 %u/%u", (unsigned)(tries + 1),
+        ESP_LOGI(TAG, "boot attempt %u/%u", (unsigned)(tries + 1),
                  (unsigned)s_config.max_boot_attempts);
     }
 
@@ -201,7 +201,7 @@ esp_err_t boot_switch_mark_boot_ok(void)
 esp_err_t boot_switch_request_selector(void)
 {
     if (s_running_from_selector) {
-        ESP_LOGW(TAG, "当前已在 selector 中，忽略切换请求");
+        ESP_LOGW(TAG, "already in selector, ignoring switch request");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -211,7 +211,7 @@ esp_err_t boot_switch_request_selector(void)
                                           NULL
                                       );
     if (selector == NULL) {
-        ESP_LOGE(TAG, "分区表中没有 factory 分区，无法返回 selector");
+        ESP_LOGE(TAG, "no factory partition, cannot return to selector");
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -225,17 +225,17 @@ esp_err_t boot_switch_request_selector(void)
                                          NULL
                                      );
     if (otadata == NULL) {
-        ESP_LOGE(TAG, "分区表中没有 otadata 分区，无法切换启动槽");
+        ESP_LOGE(TAG, "no otadata partition, cannot switch boot slot");
         return ESP_ERR_NOT_FOUND;
     }
 
     esp_err_t err = esp_partition_erase_range(otadata, 0, otadata->size);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "擦除 otadata 失败: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "erase otadata failed: %s", esp_err_to_name(err));
         return err;
     }
 
-    ESP_LOGI(TAG, "重启进入 selector");
+    ESP_LOGI(TAG, "rebooting into selector");
     esp_restart();
     return ESP_OK; /* 不会执行到这里 */
 }
@@ -252,20 +252,20 @@ esp_err_t boot_switch_set_boot_slot(const char *label)
                                         label
                                     );
     if (target == NULL) {
-        ESP_LOGE(TAG, "找不到 app 分区: %s", label);
+        ESP_LOGE(TAG, "app partition not found: %s", label);
         return ESP_ERR_NOT_FOUND;
     }
     if (target->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY) {
-        ESP_LOGE(TAG, "factory 分区请用 boot_switch_request_selector() 切换");
+        ESP_LOGE(TAG, "use boot_switch_request_selector() for factory");
         return ESP_ERR_INVALID_ARG;
     }
 
     esp_err_t err = esp_ota_set_boot_partition(target);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "设置启动分区 %s 失败: %s", label, esp_err_to_name(err));
+        ESP_LOGE(TAG, "set boot partition %s failed: %s", label, esp_err_to_name(err));
         return err;
     }
-    ESP_LOGI(TAG, "下次启动槽: %s", label);
+    ESP_LOGI(TAG, "next boot slot: %s", label);
     return ESP_OK;
 }
 

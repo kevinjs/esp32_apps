@@ -58,7 +58,7 @@ static void on_row_clicked(lv_event_t *event)
     }
 
     if (lv_tick_get() - s_created_tick < CLICK_GUARD_MS) {
-        ESP_LOGI(TAG, "忽略上电初期的触摸事件");
+        ESP_LOGI(TAG, "ignoring touch during startup guard");
         return;
     }
 
@@ -73,7 +73,7 @@ static void on_row_clicked(lv_event_t *event)
         return;
     }
 
-    ESP_LOGI(TAG, "选择 %s", s_images[index].file);
+    ESP_LOGI(TAG, "selected %s", s_images[index].file);
     s_select_cb(s_images[index].file);
 }
 
@@ -184,7 +184,7 @@ static void poll_timer_cb(lv_timer_t *timer)
     case IMAGE_INSTALL_RUNNING:
         lv_bar_set_value(s_bar, status.percent, LV_ANIM_OFF);
         lv_label_set_text_fmt(s_bar_value, "%d%%", status.percent);
-        lv_label_set_text(s_overlay_title, "正在安装");
+        lv_label_set_text(s_overlay_title, "INSTALLING");
         lv_obj_set_style_text_color(s_overlay_title, lv_color_hex(COLOR_TEXT), 0);
         lv_obj_set_style_bg_color(s_bar, lv_color_hex(COLOR_OK), LV_PART_INDICATOR);
         lv_label_set_text(s_overlay_msg, status.message);
@@ -193,7 +193,7 @@ static void poll_timer_cb(lv_timer_t *timer)
     case IMAGE_INSTALL_DONE:
         lv_bar_set_value(s_bar, 100, LV_ANIM_OFF);
         lv_label_set_text(s_bar_value, "100%");
-        lv_label_set_text(s_overlay_title, "安装完成");
+        lv_label_set_text(s_overlay_title, "INSTALLED");
         lv_obj_set_style_text_color(s_overlay_title, lv_color_hex(COLOR_OK), 0);
         lv_label_set_text(s_overlay_msg, status.message);
         if (++s_done_ticks >= 8) {
@@ -202,7 +202,7 @@ static void poll_timer_cb(lv_timer_t *timer)
         break;
 
     case IMAGE_INSTALL_FAILED:
-        lv_label_set_text(s_overlay_title, "安装失败");
+        lv_label_set_text(s_overlay_title, "INSTALL FAILED");
         lv_obj_set_style_text_color(s_overlay_title, lv_color_hex(COLOR_ERR), 0);
         lv_obj_set_style_bg_color(s_bar, lv_color_hex(COLOR_ERR), LV_PART_INDICATOR);
         lv_label_set_text(s_overlay_msg, status.message);
@@ -256,7 +256,7 @@ void selector_ui_create(
 
     if (count == 0) {
         lv_obj_t *empty = lv_label_create(list);
-        lv_label_set_text(empty, "镜像库为空\n\n用 tools/pack_storage.ps1\n打包后烧录 storage");
+        lv_label_set_text(empty, "IMAGE LIBRARY EMPTY\n\npack with tools/pack_storage.ps1\nthen flash storage");
         lv_obj_set_style_text_color(empty, lv_color_hex(COLOR_MUTED), 0);
         lv_obj_set_style_text_font(empty, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
@@ -269,7 +269,7 @@ void selector_ui_create(
 
     lv_obj_t *footer = lv_label_create(screen);
     lv_label_set_text_fmt(
-        footer, "%d 个镜像 · 已用 %.1f / %.1f MB",
+        footer, "%d images | %.1f / %.1f MB used",
         count,
         (double)fs_used / (1024.0 * 1024.0),
         (double)(fs_total / (1024.0 * 1024.0))

@@ -31,7 +31,7 @@ static void on_image_selected(const char *file)
 {
     const esp_err_t err = image_install_start(file);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "启动安装失败: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "failed to start install: %s", esp_err_to_name(err));
     }
 }
 
@@ -40,7 +40,7 @@ void app_main(void)
     /* selector 是恢复入口：NVS 异常时不擦除，避免把 IMU 标定一起清掉 */
     const esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS 初始化失败(%s)，标定数据保留原状", esp_err_to_name(nvs_err));
+        ESP_LOGW(TAG, "NVS init failed (%s), calibration data left untouched", esp_err_to_name(nvs_err));
     }
 
     boot_switch_config_t cfg = BOOT_SWITCH_CONFIG_DEFAULT();
@@ -54,19 +54,19 @@ void app_main(void)
         s_image_count = image_store_scan(s_images, IMAGE_STORE_MAX);
         image_store_info(&fs_total, &fs_used);
     } else {
-        ESP_LOGE(TAG, "storage 不可用: %s", esp_err_to_name(store_err));
+        ESP_LOGE(TAG, "storage unavailable: %s", esp_err_to_name(store_err));
     }
-    ESP_LOGI(TAG, "镜像 %d 个，storage 已用 %u/%u 字节",
+    ESP_LOGI(TAG, "%d images, storage used %u/%u bytes",
              s_image_count, (unsigned)fs_used, (unsigned)fs_total);
 
     lv_display_t *display = bsp_display_start();
     if (display == NULL) {
-        ESP_LOGE(TAG, "显示初始化失败");
+        ESP_LOGE(TAG, "display init failed");
         return;
     }
 
     if (bsp_display_lock(1000) != ESP_OK) {
-        ESP_LOGE(TAG, "获取 LVGL 锁超时");
+        ESP_LOGE(TAG, "timeout taking LVGL lock");
         return;
     }
     selector_ui_create(s_images, s_image_count, fs_total, fs_used, on_image_selected);

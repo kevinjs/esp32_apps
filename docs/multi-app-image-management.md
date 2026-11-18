@@ -223,7 +223,15 @@ E SPIFFS: spiffs partition is too large for spiffs_page_ix type. Please increase
 - 选中后写入 `ota_0` 并 `esp_ota_set_boot_partition`，`otadata` 变为 `ota_seq=1`
 - 重启后 ride-gmeter 从 `ota_0` 正常启动：UI ready、50Hz CSV、2 秒心跳 `ok=1002 err=0`
 
-### 9.5 待验证
+### 9.5 固件输出必须是 ASCII
+
+上板后中文日志与界面文案显示为「口口」——LVGL 的 Montserrat 字体没有 CJK 字形，串口终端的字体/编码也不一定对。约定：
+
+- 固件侧**所有对外字符串**（`ESP_LOGx`、LVGL 文案）只用 ASCII
+- 中文只出现在代码注释、PC 端脚本和文档里
+- 需要中文界面时，单独打包 CJK 字体子集（体积代价 100KB 量级），不混在默认字体里
+
+### 9.6 待验证
 
 - 长按 BOOT 3 秒返回 selector（`boot_switch` 擦 `otadata` 的路径）
 - 掉电重启后仍从 `ota_0` 启动

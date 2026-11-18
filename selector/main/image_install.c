@@ -61,7 +61,7 @@ static void install_worker(const char *file)
                                       RUN_SLOT_LABEL
                                   );
     if (slot == NULL) {
-        status_update(IMAGE_INSTALL_FAILED, 0, "找不到运行槽 ota_0");
+        status_update(IMAGE_INSTALL_FAILED, 0, "run slot ota_0 not found");
         return;
     }
 
@@ -70,7 +70,7 @@ static void install_worker(const char *file)
 
     FILE *fp = fopen(path, "rb");
     if (fp == NULL) {
-        status_update(IMAGE_INSTALL_FAILED, 0, "打不开镜像文件");
+        status_update(IMAGE_INSTALL_FAILED, 0, "cannot open image file");
         return;
     }
 
@@ -79,33 +79,33 @@ static void install_worker(const char *file)
     fseek(fp, 0, SEEK_SET);
     if (file_size <= 0) {
         fclose(fp);
-        status_update(IMAGE_INSTALL_FAILED, 0, "镜像文件为空");
+        status_update(IMAGE_INSTALL_FAILED, 0, "image file is empty");
         return;
     }
     if ((size_t)file_size > slot->size) {
-        ESP_LOGE(TAG, "镜像 %ld 字节超过运行槽 %u 字节", file_size, (unsigned)slot->size);
+        ESP_LOGE(TAG, "image %ld bytes exceeds run slot %u bytes", file_size, (unsigned)slot->size);
         fclose(fp);
-        status_update(IMAGE_INSTALL_FAILED, 0, "镜像超过运行槽大小，需调整分区表");
+        status_update(IMAGE_INSTALL_FAILED, 0, "image larger than run slot, resize partition table");
         return;
     }
 
     uint8_t *buffer = malloc(CHUNK_SIZE);
     if (buffer == NULL) {
         fclose(fp);
-        status_update(IMAGE_INSTALL_FAILED, 0, "内存不足");
+        status_update(IMAGE_INSTALL_FAILED, 0, "out of memory");
         return;
     }
 
-    status_update(IMAGE_INSTALL_RUNNING, 0, "正在写入");
+    status_update(IMAGE_INSTALL_RUNNING, 0, "writing");
 
     esp_ota_handle_t handle = 0;
     bool begun = false;
     esp_err_t err = esp_ota_begin(slot, (size_t)file_size, &handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_begin 失败: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
         free(buffer);
         fclose(fp);
-        status_update(IMAGE_INSTALL_FAILED, 0, "无法擦写运行槽");
+        status_update(IMAGE_INSTALL_FAILED, 0, "cannot erase/write run slot");
         return;
     }
     begun = true;
@@ -130,7 +130,7 @@ static void install_worker(const char *file)
         const int percent = (int)((uint64_t)written * 100 / (uint64_t)file_size);
         if (percent != last_percent) {
             last_percent = percent;
-            status_update(IMAGE_INSTALL_RUNNING, percent, "正在写入");
+            status_update(IMAGE_INSTALL_RUNNING, percent, "writing");
         }
     }
 
@@ -138,30 +138,30 @@ static void install_worker(const char *file)
     fclose(fp);
 
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "写入失败: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "write failed: %s", esp_err_to_name(err));
         if (begun) {
             esp_ota_abort(handle);
         }
-        status_update(IMAGE_INSTALL_FAILED, 0, "写入失败，镜像可能损坏");
+        status_update(IMAGE_INSTALL_FAILED, 0, "write failed, image may be corrupted");
         return;
     }
 
     err = esp_ota_end(handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_end 失败: %s", esp_err_to_name(err));
-        status_update(IMAGE_INSTALL_FAILED, 0, "镜像校验失败");
+        ESP_LOGE(TAG, "esp_ota_end failed: %s", esp_err_to_name(err));
+        status_update(IMAGE_INSTALL_FAILED, 0, "image verification failed");
         return;
     }
 
     err = esp_ota_set_boot_partition(slot);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "设置启动分区失败: %s", esp_err_to_name(err));
-        status_update(IMAGE_INSTALL_FAILED, 0, "切换启动分区失败");
+        ESP_LOGE(TAG, "set boot partition failed: %s", esp_err_to_name(err));
+        status_update(IMAGE_INSTALL_FAILED, 0, "failed to switch boot partition");
         return;
     }
 
-    ESP_LOGI(TAG, "已写入 %s (%ld 字节) 并切换到 %s", file, file_size, RUN_SLOT_LABEL);
-    status_update(IMAGE_INSTALL_DONE, 100, "安装完成，正在重启");
+    ESP_LOGI(TAG, "wrote %s (%ld bytes), switching boot to %s", file, file_size, RUN_SLOT_LABEL);
+    status_update(IMAGE_INSTALL_DONE, 100, "install done, rebooting");
 }
 
 static void install_task(void *arg)
@@ -193,13 +193,13 @@ esp_err_t image_install_start(const char *file)
     }
 
     /* 先置状态，避免任务还没跑起来时 UI 又触发一次 */
-    status_update(IMAGE_INSTALL_RUNNING, 0, "准备安装");
+    status_update(IMAGE_INSTALL_RUNNING, 0, "preparing install");
 
     BaseType_t created = xTaskCreate(install_task, "app_install",
                                      TASK_STACK_SIZE, file_copy, TASK_PRIORITY, NULL);
     if (created != pdPASS) {
         free(file_copy);
-        status_update(IMAGE_INSTALL_FAILED, 0, "任务创建失败");
+        status_update(IMAGE_INSTALL_FAILED, 0, "task create failed");
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
