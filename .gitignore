@@ -1,26 +1,46 @@
-# node
+# ---------------------------------------------------------------- 构建产物
+# ESP-IDF / CMake：不带前导斜杠的模式在任意层级生效，所以 app 子目录里的
+# build/、managed_components/、sdkconfig 都由这一份规则覆盖，不需要每个
+# 固件工程再各自维护一份 .gitignore。
+build/
+build_*/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
+sdkconfig.ci
+compile_commands.json
+CMakeCache.txt
+CMakeFiles/
+.cache/
+*.log
+*.map
+
+# 例外：xiaozhi-ui/build 是刻意入库的产物（ESP-Brookesia 在 CMake configure
+# 阶段直接 file(COPY) 该目录）。目录被忽略后 git 无法再用 ! 恢复其中的文件，
+# 所以必须先重新包含目录本身，再包含目录内容。
+!xiaozhi-ui/build/
+!xiaozhi-ui/build/**
+
+# ---------------------------------------------------------------- 前端产物
 node_modules/
 npm-debug.log*
-
-# build outputs that should be regenerated
 dist/
 *.bpk
 
-# 编辑器 / 系统
+# ---------------------------------------------------------------- 二进制镜像
+# tools/pack_storage.ps1 的打包输出（storage.bin，21MB）；app 镜像在 build/ 里
+/build/
+# 镜像库源目录只留 README 和发布件描述，二进制按需本地放置
+storage_src/*.bin
+# 旧版本归档（只在本机保留，不进仓库）
+storage_src/_archive/
+# 共享字库由 xiaozhi/scripts/gen_cjk_font.py 生成（2MB），本机保留即可
+storage_src/font-*.ttf
+
+# ---------------------------------------------------------------- 编辑器 / 系统
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# 注意：不要在这里写通用的 "build/"。
-# xiaozhi-ui/build 是刻意入库的产物（ESP-Brookesia 在 CMake configure 阶段直接拷贝），
-# 一旦父目录被忽略，git 无法再用 ! 规则恢复其内容。
-# 固件工程请在该子目录内用局部 .gitignore 忽略 build/、sdkconfig 等。
-
-# tools/pack_storage.ps1 的打包输出（storage.bin，20MB+）
-/build/
-
-# 镜像库源目录只留 README，二进制按需本地放置
-storage_src/*.bin
-
