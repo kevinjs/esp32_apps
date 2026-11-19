@@ -117,6 +117,17 @@ if ($entries.Count -eq 0) {
     Write-Warning "目录里没有 app-*.bin，生成的镜像库是空的"
 }
 
+# ---- 共享资源（字库等，不属于任何 app） -------------------------------------
+# font-cjk.ttf 由 components/cjk_font 在运行时从 storage 读取，selector
+# 与所有 app 共用一份，因此不能打进各自的镜像里。
+$extras = @()
+foreach ($extra in (Get-ChildItem -LiteralPath $SourceDir -Filter "font-*.ttf" -File -ErrorAction SilentlyContinue)) {
+    if ($extra.Name.Length -gt 31) {
+        throw ("文件名过长（{0} 字符，上限 31）: {1}" -f $extra.Name.Length, $extra.Name)
+    }
+    $extras += $extra
+}
+
 $duplicated = $entries | Group-Object id | Where-Object { $_.Count -gt 1 }
 if ($duplicated) {
     throw ("存在重复 app id: " + (($duplicated | ForEach-Object { $_.Name }) -join ", "))
@@ -134,6 +145,11 @@ foreach ($entry in $entries) {
     if ($entry.icon -ne "") {
         Copy-Item -LiteralPath (Join-Path $SourceDir $entry.icon) -Destination $stage
     }
+}
+
+foreach ($extra in $extras) {
+    Copy-Item -LiteralPath $extra.FullName -Destination $stage
+    Write-Host ("  共享资源 {0} {1,10:N0} B" -f $extra.Name, $extra.Length)
 }
 
 $manifest = [pscustomobject]@{

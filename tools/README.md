@@ -52,3 +52,4 @@ Copy-Item ..\ride-gmeter\build\ride-gmeter.bin ..\storage_src\app-gmeter-1.0.0.b
 - `pack_storage.ps1` 用 IDF 自带的 `spiffsgen.py`，不需要额外安装 `mklittlefs`；但必须在 ESP-IDF 环境里跑（需要 `IDF_PATH` 和 `python`）。
 - SPIFFS 参数（page 512 / block 4096 / obj-name 32 / meta 4）必须和 selector 的 `sdkconfig` 一致，脚本里已固定，不要单独改。page 用 512 是因为 21MB 分区在 256B 页下会超过 `spiffs_page_ix` 的 65535 上限。
 - `manifest.json` 里的 `partition_table` 是 `partitions/fleet.csv` 的 SHA256 前 8 位；改了分区表要重新打包。
+- `storage_src/` 里**一个 app id 只能有一份** `.bin`，否则脚本报「存在重复 app id」；换版本时旧的挪进 `storage_src/_archive/`（脚本不递归子目录，归档件不会被打进镜像）。
