@@ -18,9 +18,11 @@
 #include "nvs_flash.h"
 
 #include "boot_switch.h"
+#include "cjk_font.h"
 #include "image_install.h"
 #include "image_store.h"
 #include "selector_ui.h"
+#include "wifi_config.h"
 
 static const char *TAG = "selector";
 
@@ -47,6 +49,11 @@ void app_main(void)
     cfg.watch_boot_key = false;     /* 已经运行在 factory，不需要按键兜底 */
     boot_switch_init(&cfg);
 
+    /* 进选择器就连 Wi-Fi：后台连接不阻塞 UI，状态由底部标签定时刷新 */
+    if (wifi_config_autoconnect() != ESP_OK) {
+        ESP_LOGI(TAG, "no Wi-Fi credentials yet, use the Wi-Fi button to configure");
+    }
+
     size_t fs_total = 0;
     size_t fs_used = 0;
     const esp_err_t store_err = image_store_init();
@@ -63,6 +70,11 @@ void app_main(void)
     if (display == NULL) {
         ESP_LOGE(TAG, "display init failed");
         return;
+    }
+
+    /* 中文字库从 storage 读（selector 的 factory 分区放不下 2MB 字库） */
+    if (cjk_font_init() != ESP_OK) {
+        ESP_LOGW(TAG, "CJK font unavailable, UI falls back to Montserrat");
     }
 
     if (bsp_display_lock(1000) != ESP_OK) {

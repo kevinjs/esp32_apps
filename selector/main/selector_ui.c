@@ -2,12 +2,16 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "esp_system.h"
 #include "lvgl.h"
 
+#include "cjk_font.h"
 #include "image_install.h"
+#include "wifi_config.h"
+#include "wifi_setup.h"
 
 static const char *TAG = "selector.ui";
 
@@ -22,6 +26,8 @@ static const char *TAG = "selector.ui";
 static const image_entry_t *s_images = NULL;
 static int s_count = 0;
 static selector_select_cb_t s_select_cb = NULL;
+
+static lv_obj_t *s_wifi_status = NULL;
 
 static lv_obj_t *s_overlay = NULL;
 static lv_obj_t *s_overlay_title = NULL;
@@ -91,6 +97,18 @@ static void on_overlay_clicked(lv_event_t *event)
     }
 }
 
+static void on_wifi_clicked(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+        return;
+    }
+    if (lv_tick_get() - s_created_tick < CLICK_GUARD_MS) {
+        ESP_LOGI(TAG, "ignoring touch during startup guard");
+        return;
+    }
+    wifi_setup_open();
+}
+
 /* -------------------------------------------------------------------------- */
 
 static lv_obj_t *create_row(lv_obj_t *parent, const image_entry_t *entry, int index)
@@ -110,13 +128,13 @@ static lv_obj_t *create_row(lv_obj_t *parent, const image_entry_t *entry, int in
     lv_obj_t *name = lv_label_create(row);
     lv_label_set_text(name, entry->name);
     lv_obj_set_style_text_color(name, lv_color_hex(COLOR_TEXT), 0);
-    lv_obj_set_style_text_font(name, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(name, cjk_font_or(16, &lv_font_montserrat_16), 0);
     lv_obj_align(name, LV_ALIGN_LEFT_MID, 16, -8);
 
     lv_obj_t *version = lv_label_create(row);
     lv_label_set_text_fmt(version, "v%s  %u KB", entry->version, (unsigned)(entry->size / 1024));
     lv_obj_set_style_text_color(version, lv_color_hex(COLOR_MUTED), 0);
-    lv_obj_set_style_text_font(version, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(version, cjk_font_or(14, &lv_font_montserrat_14), 0);
     lv_obj_align(version, LV_ALIGN_LEFT_MID, 16, 12);
 
     return row;
@@ -140,7 +158,7 @@ static void create_overlay(lv_obj_t *screen)
     s_overlay_title = lv_label_create(s_overlay);
     lv_label_set_text(s_overlay_title, "");
     lv_obj_set_style_text_color(s_overlay_title, lv_color_hex(COLOR_TEXT), 0);
-    lv_obj_set_style_text_font(s_overlay_title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_overlay_title, cjk_font_or(20, &lv_font_montserrat_20), 0);
     lv_obj_align(s_overlay_title, LV_ALIGN_CENTER, 0, -56);
 
     s_bar = lv_bar_create(s_overlay);
@@ -155,13 +173,13 @@ static void create_overlay(lv_obj_t *screen)
     s_bar_value = lv_label_create(s_overlay);
     lv_label_set_text(s_bar_value, "");
     lv_obj_set_style_text_color(s_bar_value, lv_color_hex(COLOR_MUTED), 0);
-    lv_obj_set_style_text_font(s_bar_value, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_bar_value, cjk_font_or(14, &lv_font_montserrat_14), 0);
     lv_obj_align(s_bar_value, LV_ALIGN_CENTER, 0, 30);
 
     s_overlay_msg = lv_label_create(s_overlay);
     lv_label_set_text(s_overlay_msg, "");
     lv_obj_set_style_text_color(s_overlay_msg, lv_color_hex(COLOR_MUTED), 0);
-    lv_obj_set_style_text_font(s_overlay_msg, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_overlay_msg, cjk_font_or(14, &lv_font_montserrat_14), 0);
     lv_obj_set_style_text_align(s_overlay_msg, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_overlay_msg, LV_ALIGN_CENTER, 0, 72);
 }
@@ -220,6 +238,35 @@ static void poll_timer_cb(lv_timer_t *timer)
 
 /* -------------------------------------------------------------------------- */
 
+/** 每秒刷新底部 Wi-Fi 状态；设置页保存后无需手动通知。 */
+static void refresh_wifi_status(lv_timer_t *timer)
+{
+    (void)timer;
+    static char last[160];
+
+    wifi_cred_t cred;
+    const bool has_cred = (wifi_config_load(&cred) == ESP_OK);
+    const char *ssid = has_cred ? cred.ssid : NULL;
+    const wifi_config_state_t state = wifi_config_get_state();
+
+    char buf[160];
+    if (state == WIFI_CFG_STATE_CONNECTED) {
+        snprintf(buf, sizeof(buf), "wifi: %s 已连接 %s", ssid ? ssid : "", wifi_config_get_ip());
+    } else if (state == WIFI_CFG_STATE_CONNECTING) {
+        snprintf(buf, sizeof(buf), "wifi: %s 连接中…", ssid ? ssid : "");
+    } else if (ssid == NULL) {
+        snprintf(buf, sizeof(buf), "wifi: 未设置，点右侧按钮配置");
+    } else {
+        snprintf(buf, sizeof(buf), "wifi: %s 未连接", ssid);
+    }
+
+    if (s_wifi_status == NULL || strcmp(buf, last) == 0) {
+        return;
+    }
+    strlcpy(last, buf, sizeof(last));
+    lv_label_set_text(s_wifi_status, buf);
+}
+
 void selector_ui_create(
     const image_entry_t *images,
     int count,
@@ -237,15 +284,23 @@ void selector_ui_create(
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_set_scrollable(screen, false);
 
+    /*
+     * 圆屏布局约束：可视区域是 466x466 的内切圆（半径 233，圆心 233,233）。
+     * 所有内容控制在半径 200 以内，否则会被物理圆边裁掉、且触摸点不到。
+     *   y=40  处可用半宽约 155
+     *   y=100 处约 205
+     *   y=320 处约 219
+     *   y=400 处约 152
+     */
     lv_obj_t *title = lv_label_create(screen);
     lv_label_set_text(title, "APPS");
     lv_obj_set_style_text_color(title, lv_color_hex(COLOR_MUTED), 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 56);
+    lv_obj_set_style_text_font(title, cjk_font_or(20, &lv_font_montserrat_20), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
 
     lv_obj_t *list = lv_obj_create(screen);
-    lv_obj_set_size(list, 320, 300);
-    lv_obj_align(list, LV_ALIGN_CENTER, 0, 8);
+    lv_obj_set_size(list, 320, 250);
+    lv_obj_align(list, LV_ALIGN_CENTER, 0, -40);
     lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(list, 0, 0);
     lv_obj_set_style_pad_all(list, 0, 0);
@@ -258,7 +313,7 @@ void selector_ui_create(
         lv_obj_t *empty = lv_label_create(list);
         lv_label_set_text(empty, "IMAGE LIBRARY EMPTY\n\npack with tools/pack_storage.ps1\nthen flash storage");
         lv_obj_set_style_text_color(empty, lv_color_hex(COLOR_MUTED), 0);
-        lv_obj_set_style_text_font(empty, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(empty, cjk_font_or(14, &lv_font_montserrat_14), 0);
         lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(empty, LV_ALIGN_CENTER, 0, 0);
     } else {
@@ -266,6 +321,26 @@ void selector_ui_create(
             create_row(list, &images[i], i);
         }
     }
+
+    /* Wi-Fi 设置入口：底部安全区内，整条 150x42 都可点 */
+    lv_obj_t *wifi_btn = lv_obj_create(screen);
+    lv_obj_set_size(wifi_btn, 150, 42);
+    lv_obj_align(wifi_btn, LV_ALIGN_BOTTOM_MID, 0, -100);
+    lv_obj_set_style_bg_color(wifi_btn, lv_color_hex(COLOR_ROW), 0);
+    lv_obj_set_style_bg_opa(wifi_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(wifi_btn, 21, 0);
+    lv_obj_set_style_border_width(wifi_btn, 1, 0);
+    lv_obj_set_style_border_color(wifi_btn, lv_color_hex(COLOR_ROW_EDGE), 0);
+    lv_obj_set_style_pad_all(wifi_btn, 0, 0);
+    lv_obj_set_scrollable(wifi_btn, false);
+    lv_obj_set_clickable(wifi_btn, true);
+    lv_obj_add_event_cb(wifi_btn, on_wifi_clicked, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *wifi_label = lv_label_create(wifi_btn);
+    lv_label_set_text(wifi_label, "WIFI SETUP");
+    lv_obj_set_style_text_color(wifi_label, lv_color_hex(COLOR_TEXT), 0);
+    lv_obj_set_style_text_font(wifi_label, cjk_font_or(14, &lv_font_montserrat_14), 0);
+    lv_obj_center(wifi_label);
 
     lv_obj_t *footer = lv_label_create(screen);
     lv_label_set_text_fmt(
@@ -276,8 +351,16 @@ void selector_ui_create(
         (double)(fs_total / (1024.0 * 1024.0))
     );
     lv_obj_set_style_text_color(footer, lv_color_hex(0x555555), 0);
-    lv_obj_set_style_text_font(footer, &lv_font_montserrat_14, 0);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -48);
+    lv_obj_set_style_text_font(footer, cjk_font_or(14, &lv_font_montserrat_14), 0);
+    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -58);
+
+    s_wifi_status = lv_label_create(screen);
+    lv_label_set_text(s_wifi_status, "");
+    lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(COLOR_MUTED), 0);
+    lv_obj_set_style_text_font(s_wifi_status, cjk_font_or(14, &lv_font_montserrat_14), 0);
+    lv_obj_align(s_wifi_status, LV_ALIGN_BOTTOM_MID, 0, -34);
+    refresh_wifi_status(NULL);
+    lv_timer_create(refresh_wifi_status, 1000, NULL);
 
     create_overlay(screen);
 
