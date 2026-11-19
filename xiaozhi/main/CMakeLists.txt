@@ -7,9 +7,13 @@ idf_component_register(
         "xz_chat.c"
     INCLUDE_DIRS
         "."
+    # 中文字库不在镜像里：由 components/cjk_font 从 storage 分区读取
     PRIV_REQUIRES
         boot_switch
+        wifi_config
+        cjk_font
         esp_xiaozhi
+        mcp-c-sdk
         esp_audio_codec
         esp_codec_dev
         esp_driver_i2s

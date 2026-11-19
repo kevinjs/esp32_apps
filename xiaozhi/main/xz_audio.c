@@ -8,10 +8,12 @@
 #include "esp_audio_dec.h"
 #include "esp_audio_enc.h"
 #include "esp_codec_dev.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_opus_dec.h"
 #include "esp_opus_enc.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
@@ -106,13 +108,24 @@ static esp_err_t opus_codec_init(void)
 
 static void capture_task(void *arg)
 {
-    uint8_t pcm[XZ_PCM_FRAME_BYTES];
+    /* 采集缓冲同样必须在内部 RAM：I2S RX DMA 不能直接写 PSRAM */
+    uint8_t *pcm = heap_caps_malloc(XZ_PCM_FRAME_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     uint8_t opus[OPUS_PACKET_MAX];
+    uint32_t frames = 0;
+    uint32_t last_report = esp_log_timestamp();
+    int peak = 0;
+
+    if (pcm == NULL) {
+        ESP_LOGE(TAG, "capture buffer alloc failed");
+        s_capture_task = NULL;
+        vTaskDeleteWithCaps(NULL);
+        return;
+    }
 
     ESP_LOGI(TAG, "capture task started (%d bytes/frame)", XZ_PCM_FRAME_BYTES);
 
     while (s_running) {
-        const int ret = esp_codec_dev_read(s_mic, pcm, sizeof(pcm));
+        const int ret = esp_codec_dev_read(s_mic, pcm, XZ_PCM_FRAME_BYTES);
         if (ret != ESP_CODEC_DEV_OK) {
             ESP_LOGW(TAG, "mic read failed: %d", ret);
             vTaskDelay(pdMS_TO_TICKS(20));
@@ -122,9 +135,21 @@ static void capture_task(void *arg)
             continue;   /* 半双工静默期：数据丢弃 */
         }
 
+        /* 诊断：统计 2s 内的峰值，用来判断麦克风是否真的收到声音 */
+        const int16_t *samples = (const int16_t *)pcm;
+        for (size_t i = 0; i < XZ_PCM_FRAME_BYTES / sizeof(int16_t); i++) {
+            int v = samples[i];
+            if (v < 0) {
+                v = -v;
+            }
+            if (v > peak) {
+                peak = v;
+            }
+        }
+
         esp_audio_enc_in_frame_t in_frame = {
             .buffer = pcm,
-            .len = sizeof(pcm),
+            .len = XZ_PCM_FRAME_BYTES,
         };
         esp_audio_enc_out_frame_t out_frame = {
             .buffer = opus,
@@ -137,16 +162,35 @@ static void capture_task(void *arg)
         if (out_frame.encoded_bytes > 0) {
             s_capture_cb(opus, out_frame.encoded_bytes, s_capture_ctx);
         }
+
+        frames++;
+        const uint32_t now = esp_log_timestamp();
+        if (now - last_report >= 2000) {
+            ESP_LOGI(TAG, "mic tx %u frames / %ums, peak %d",
+                     (unsigned)frames, (unsigned)(now - last_report), peak);
+            frames = 0;
+            peak = 0;
+            last_report = now;
+        }
     }
 
     ESP_LOGI(TAG, "capture task exit");
+    free(pcm);
     s_capture_task = NULL;
-    vTaskDelete(NULL);
+    vTaskDeleteWithCaps(NULL);
 }
 
 static void play_task(void *arg)
 {
-    uint8_t pcm[DECODE_PCM_MAX];
+    /* 解码后的 PCM 存放必须在内部 RAM：I2S DMA 不能直接访问 PSRAM */
+    uint8_t *pcm = heap_caps_malloc(DECODE_PCM_MAX, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (pcm == NULL) {
+        ESP_LOGE(TAG, "play buffer alloc failed");
+        s_play_task = NULL;
+        vTaskDeleteWithCaps(NULL);
+        return;
+    }
+
     play_item_t item;
 
     while (s_running) {
@@ -165,7 +209,7 @@ static void play_task(void *arg)
         };
         esp_audio_dec_out_frame_t frame = {
             .buffer = pcm,
-            .len = sizeof(pcm),
+            .len = DECODE_PCM_MAX,
         };
         esp_audio_dec_info_t info = {0};
 
@@ -177,18 +221,21 @@ static void play_task(void *arg)
                 }
                 break;
             }
-            esp_codec_dev_write(s_spk, frame.buffer, frame.decoded_size);
+            if (esp_codec_dev_write(s_spk, frame.buffer, frame.decoded_size) != ESP_CODEC_DEV_OK) {
+                ESP_LOGW(TAG, "speaker write failed");
+            }
             raw.buffer += raw.consumed;
             raw.len -= raw.consumed;
-            frame.len = sizeof(pcm);
+            frame.len = DECODE_PCM_MAX;
         }
 
         free(item.data);
         s_playing = false;
     }
 
+    free(pcm);
     s_play_task = NULL;
-    vTaskDelete(NULL);
+    vTaskDeleteWithCaps(NULL);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -241,10 +288,20 @@ esp_err_t xz_audio_init(xz_audio_capture_cb_t cb, void *ctx)
     }
 
     s_running = true;
-    if (xTaskCreate(play_task, "xz_play", 6144, NULL, 5, &s_play_task) != pdPASS) {
+    /*
+     * 栈需求：libopus 编解码 + 回调里的 MQTT/UDP 加密发送（走 TLS/AES）。
+     * - 采集：16KB 实测会 stack overflow，给 40KB
+     * - 播放：12KB 实测会 stack overflow（解码 + esp_codec_dev_write），给 32KB
+     * 栈放 PSRAM：74KB 内部 RAM 一旦被占走，LVGL 刷屏时
+     * spicommon 的 DMA 中转缓冲（每帧 46KB）和 mbedtls 会分配失败。
+     * 注意 PCM 缓冲不能跟着栈走 PSRAM，必须单独 heap_caps_malloc 到内部 RAM。
+     */
+    if (xTaskCreateWithCaps(play_task, "xz_play", 32768, NULL, 5, &s_play_task,
+                            MALLOC_CAP_SPIRAM) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
-    if (xTaskCreate(capture_task, "xz_cap", 6144, NULL, 6, &s_capture_task) != pdPASS) {
+    if (xTaskCreateWithCaps(capture_task, "xz_cap", 40960, NULL, 6, &s_capture_task,
+                            MALLOC_CAP_SPIRAM) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
 

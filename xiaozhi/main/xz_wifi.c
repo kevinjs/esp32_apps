@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "sdkconfig.h"
+#include "wifi_config.h"
 
 static const char *TAG = "xz.wifi";
 
@@ -50,8 +51,20 @@ esp_err_t xz_wifi_start(void)
     if (s_started) {
         return ESP_OK;
     }
-    if (strlen(CONFIG_XZ_WIFI_SSID) == 0) {
-        ESP_LOGE(TAG, "no SSID configured, set CONFIG_XZ_WIFI_SSID in menuconfig");
+    /* 凭证优先取 selector 保存的 NVS 配置，回落到编译期 Kconfig */
+    char ssid[WIFI_CRED_SSID_MAX] = {0};
+    char pass[WIFI_CRED_PASS_MAX] = {0};
+    wifi_cred_t cred;
+    if (wifi_config_load(&cred) == ESP_OK) {
+        strlcpy(ssid, cred.ssid, sizeof(ssid));
+        strlcpy(pass, cred.pass, sizeof(pass));
+        ESP_LOGI(TAG, "using credentials saved in selector");
+    } else if (strlen(CONFIG_XZ_WIFI_SSID) > 0) {
+        strlcpy(ssid, CONFIG_XZ_WIFI_SSID, sizeof(ssid));
+        strlcpy(pass, CONFIG_XZ_WIFI_PASSWORD, sizeof(pass));
+        ESP_LOGW(TAG, "no saved credentials, falling back to Kconfig");
+    } else {
+        ESP_LOGE(TAG, "no wifi credentials: open selector -> WIFI and save one");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -77,16 +90,15 @@ esp_err_t xz_wifi_start(void)
                         IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_handler, NULL, NULL));
 
     wifi_config_t wifi_cfg = {0};
-    strlcpy((char *)wifi_cfg.sta.ssid, CONFIG_XZ_WIFI_SSID, sizeof(wifi_cfg.sta.ssid));
-    strlcpy((char *)wifi_cfg.sta.password, CONFIG_XZ_WIFI_PASSWORD, sizeof(wifi_cfg.sta.password));
-    wifi_cfg.sta.threshold.authmode = strlen(CONFIG_XZ_WIFI_PASSWORD) == 0
-                                     ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+    strlcpy((char *)wifi_cfg.sta.ssid, ssid, sizeof(wifi_cfg.sta.ssid));
+    strlcpy((char *)wifi_cfg.sta.password, pass, sizeof(wifi_cfg.sta.password));
+    wifi_cfg.sta.threshold.authmode = pass[0] == '\0' ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "connecting to \"%s\" ...", CONFIG_XZ_WIFI_SSID);
+    ESP_LOGI(TAG, "connecting to \"%s\" ...", ssid);
     s_started = true;
     return ESP_OK;
 }

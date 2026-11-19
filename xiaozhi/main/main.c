@@ -10,12 +10,15 @@
  *   3. Wi-Fi STA 连接
  *   4. 音频通路 + Opus
  *   5. esp_xiaozhi 协议层（首次需要激活码绑定）
- *   6. 点屏幕 TALK 按钮开始/停止一轮对话
+ *   6. 屏幕底部按钮（文案随状态变）：
+ *      说话 -> 说完 -> 识别中 -> 播报(可打断) -> 说话 ...
+ *      manual 模式必须发 listen stop，服务端才会开始识别
  */
 #include <stdbool.h>
 #include <stdio.h>
 
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -53,27 +56,39 @@ static void audio_capture_cb(const uint8_t *opus, size_t len, void *ctx)
     xz_chat_send_audio(opus, len);
 }
 
+/* 内部 RAM（尤其 DMA 可用部分）不够时 LVGL 刷屏和 mbedtls 会静默失败，逐阶段打点 */
+static void log_heap(const char *stage)
+{
+    ESP_LOGI(TAG, "[heap] %-8s internal=%u dma=%u psram=%u",
+             stage,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
+
 /* -------------------------------------------------------------------------- */
 
 static void app_task(void *arg)
 {
     (void)arg;
 
+    log_heap("start");
+
     xz_ui_set_state("WIFI");
-    xz_ui_set_detail("connecting");
+    xz_ui_set_detail("正在连接 Wi-Fi ...");
 
     esp_err_t err = xz_wifi_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "wifi start failed: %s", esp_err_to_name(err));
-        xz_ui_set_state("NO WIFI CONFIG");
-        xz_ui_set_detail("set CONFIG_XZ_WIFI_SSID in menuconfig");
+        xz_ui_set_state("NO WIFI");
+        xz_ui_set_detail("长按 BOOT 3 秒回应用列表重新配网");
         goto idle;
     }
     err = xz_wifi_wait_connected(20000);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "wifi connect failed: %s", esp_err_to_name(err));
         xz_ui_set_state("NO WIFI");
-        xz_ui_set_detail("check SSID / password");
+        xz_ui_set_detail("请检查 Wi-Fi 名称和密码");
         goto idle;
     }
 
@@ -84,6 +99,7 @@ static void app_task(void *arg)
         xz_ui_set_state("AUDIO ERROR");
         goto idle;
     }
+    log_heap("audio");
 
     xz_ui_set_state("LINK");
     err = xz_chat_init();
@@ -92,9 +108,10 @@ static void app_task(void *arg)
         xz_ui_set_state("SERVER ERROR");
         goto idle;
     }
+    log_heap("chat");
 
     xz_ui_set_state("IDLE");
-    xz_ui_set_detail("tap TALK to start");
+    xz_ui_set_detail("点下方按钮开始说话");
 
 idle:
     while (true) {
@@ -105,10 +122,16 @@ idle:
         if (cmd != XZ_CMD_TOGGLE) {
             continue;
         }
-        if (xz_chat_is_active()) {
-            xz_chat_stop_session();
+        if (!xz_chat_is_active()) {
+            xz_chat_start_session();     /* TAP 1：连接 + 开通道 + 开始说话 */
+        } else if (xz_chat_is_listening()) {
+            xz_chat_talk_stop();         /* TAP 2：说完了，等服务端识别 */
+        } else if (xz_chat_is_thinking()) {
+            xz_chat_talk_cancel();       /* 等太久不想等了，直接放弃本次 */
+        } else if (xz_chat_is_speaking() || xz_audio_is_busy()) {
+            xz_chat_abort_speaking();    /* TAP：打断播报 */
         } else {
-            xz_chat_start_session();
+            xz_chat_talk_start();        /* TAP：再说一句 */
         }
     }
 }
