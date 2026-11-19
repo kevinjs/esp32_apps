@@ -168,7 +168,7 @@ esp_err_t boot_switch_set_boot_slot(const char *label);          // 切到指定
 | --- | --- | --- |
 | M1 | 统一分区表、`boot_switch` 组件、PC 端打包/烧录脚本 | 已完成 |
 | M2 | selector app：SPIFFS 扫描、LVGL 列表、OTA 写入进度 | 本轮完成 |
-| M3 | ride-gmeter 接入 `boot_switch` + 退出入口；第二个 app 接入验证 | 本轮完成（第二个 app 待接入） |
+| M3 | ride-gmeter 接入 `boot_switch` + 退出入口；第二个 app 接入验证 | 已完成（ride-gmeter + xiaozhi 0.1.3） |
 | M4 | （可选）自动启动上次 app、图标与中文名称（manifest） | 待评估 |
 | M5 | （可选）Android USB 直刷工具作为救砖兜底 | 待评估 |
 | M6 | （可选）Brookesia super 作为 `ota_0` 里的一个镜像接入 | 待评估 |
@@ -236,3 +236,22 @@ E SPIFFS: spiffs partition is too large for spiffs_page_ix type. Please increase
 - 长按 BOOT 3 秒返回 selector（`boot_switch` 擦 `otadata` 的路径）
 - 掉电重启后仍从 `ota_0` 启动
 - 连续 3 次启动失败自动回退 selector
+
+### 9.7 第二个 app 接入（xiaozhi 0.1.3，2026-11-19）
+
+xiaozhi（原生 ESP-IDF 版小智语音助手）成为镜像库里的第二个 app，验证了
+「一次打包多 app」的完整链路：
+
+| 步骤 | 命令 | 结果 |
+| --- | --- | --- |
+| 开发验证 | `tools/flash_app.ps1 -Bin xiaozhi/build/xiaozhi.bin -Slot 0` | 写 `0x220000`，2,113,152 B，哈希校验通过 |
+| 发布 | `Copy-Item … storage_src/app-xiaozhi-0.1.3.bin` | sha256 `300e5a6a7afe…` |
+| 打包烧录 | `tools/pack_storage.ps1 -Flash -Port COM3` | manifest 记 2 个 app，21 MB 镜像 71.6 s 写完并校验 |
+
+要点：
+
+- **同 id 只能保留一份** `.bin`，换版本时旧文件挪进 `storage_src/_archive/`
+  （脚本非递归扫描，`_archive/` 不会被打进镜像，也不参与重复 id 检查）
+- 21 MB 镜像实际压缩到 3.0 MB 传输，`-b 921600` 下约 70 s；日常改 app 不必重打，
+  只有 app 发布件或共享资源（`font-cjk.ttf`）变了才需要
+- 烧 storage 不影响 `nvs`（配网/标定）和 `ota_0`（当前运行 app），可随时重打

@@ -6,7 +6,8 @@ ESP32 平台上跑的应用、UI 前端与配套资源集合。每个应用一�
 
 | 目录 | 说明 | 目标硬件 | 状态 |
 | --- | --- | --- | --- |
-| [`xiaozhi-ui`](./xiaozhi-ui) | ESP-Brookesia **v0.8** 运行时（JavaScript）应用的"小智"语音助手前端：状态显示、Start/Stop、对话文本、BOOT 键手势 | ESP32-S3 + CO5300 AMOLED 466×466（Waveshare ESP32-S3-Touch-AMOLED-1.75C 实测） | 可用，临时适配 v0.8 |
+| [`xiaozhi`](./xiaozhi) | 小智语音助手（ESP-IDF 原生 C，`esp_xiaozhi` + 板级 BSP）：状态机、可滑动对话历史、共享 CJK 字库、长按 BOOT 回 selector | Waveshare ESP32-S3-Touch-AMOLED-1.75C | **0.1.3 已进镜像库** |
+| [`xiaozhi-ui`](./xiaozhi-ui) | ESP-Brookesia **v0.8** 运行时（JavaScript）应用的"小智"语音助手前端：状态显示、Start/Stop、对话文本、BOOT 键手势 | ESP32-S3 + CO5300 AMOLED 466×466（Waveshare ESP32-S3-Touch-AMOLED-1.75C 实测） | 可用，临时适配 v0.8（被上面的原生版取代） |
 | [`ride-gmeter`](./ride-gmeter) | 骑行加速度指示器（ESP-IDF 原生 C）：QMI8658 去重力 + 滤波 + 零偏标定，圆形屏幕气泡界面 + 串口数据流 | Waveshare ESP32-S3-Touch-AMOLED-1.75C（板载 QMI8658） | 阶段二可用（气泡界面） |
 
 ## 目录约定
@@ -17,6 +18,15 @@ ESP32 平台上跑的应用、UI 前端与配套资源集合。每个应用一�
 - 不提交 `node_modules/`、`dist/`、`*.bpk`
 - 所有应用共用 `partitions/fleet.csv`（镜像切换方案的唯一分区表），不要各自维护
 - 应用必须链接 `components/boot_switch`，否则进入应用后无法回到启动选择器
+- **中文字库一律用 `components/cjk_font`**（字库文件在 storage 分区，
+  由 `tools/pack_storage.ps1` 打包）：`cjk_font_init()` +
+  `cjk_font_or(px, &lv_font_montserrat_XX)`。不要在 app 里再 `EMBED_FILES`
+  一份 2 MB 字库，也不要依赖 LVGL 内置的 1195 字 CJK 字库（缺字会显示方块）
+- **应用固件必须进 selector 镜像库，禁止用 `idf.py flash` 直接烧**：
+  `idf.py flash` 固定写 `0x20000`，那里是 selector，覆盖后长按 BOOT 回不到选择器
+  （旧 app 跑在 factory 上还会被 `boot_switch` 误判为「已在 selector」而忽略按键）。
+  正确流程见 [`docs/multi-app-image-management.md`](./docs/multi-app-image-management.md)：
+  `storage_src/app-<id>-<版本>.bin` → `tools/pack_storage.ps1 -Flash` → 从 selector 启动
 
 ## 设计文档
 
