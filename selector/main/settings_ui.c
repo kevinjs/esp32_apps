@@ -307,7 +307,7 @@ static void create_root(void)
     s_root = lv_obj_create(screen);
     lv_obj_set_size(s_root, 466, 466);
     lv_obj_center(s_root);
-    ui_apply_gradient(s_root);
+    ui_bg_apply(s_root);
     lv_obj_set_scrollable(s_root, false);
     lv_obj_set_clickable(s_root, true);   /* 挡住下层应用列表的点击 */
     lv_obj_set_hidden(s_root, true);

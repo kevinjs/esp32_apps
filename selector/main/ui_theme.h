@@ -7,9 +7,10 @@
 #pragma once
 
 #include "lvgl.h"
+#include "ui_bg.h"      /* 斜向渐变背景已抽到 components/ui_bg，各 app 共用 */
 
-#define UI_COLOR_BG_TOP     0x07070E   /* 背景渐变：顶部近黑 */
-#define UI_COLOR_BG_BOTTOM  0x1A1230   /* 背景渐变：底部暗紫 */
+#define UI_COLOR_BG_TOP     UI_BG_COLOR_TOP     /* 背景渐变：顶部近黑 */
+#define UI_COLOR_BG_BOTTOM  UI_BG_COLOR_BOTTOM  /* 背景渐变：底部暗紫 */
 
 #define UI_COLOR_TEXT       0xF2F2F2
 #define UI_COLOR_MUTED      0x8A8A99
@@ -24,11 +25,3 @@
 #define UI_COLOR_ERR        0xE74C3C
 #define UI_COLOR_ACCENT     0x7C5CFF   /* 主色（紫） */
 #define UI_COLOR_ACCENT_2   0x35D0FF   /* 主色渐变末端（青） */
-
-/**
- * @brief 给整屏容器铺斜向渐变背景（实现在 ui_bg.c）
- *
- * LVGL 的 bg_grad_dir 只有竖直/水平两档，所以这里用 PSRAM 里生成的一张
- * 斜向渐变图当 bg_image，角度在 ui_bg.c 的 BG_TILT_DEG 调整。
- */
-void ui_apply_gradient(lv_obj_t *obj);

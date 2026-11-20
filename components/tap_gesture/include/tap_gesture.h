@@ -1,10 +1,9 @@
 /*
- * 点击手势判定（selector 内共用）
+ * 点击手势判定（selector / watch 等 app 共用）
  *
  * 为什么不用 LV_EVENT_CLICKED：
  * LVGL 只判断按下/抬起是否落在同一对象上，手指拖着走几十像素后松手照样算点击。
- * 列表内容不满一屏时根本不会滚动，用户「想滑动」就会被当成点击 —— 在 selector
- * 里这等于把 app 装进 ota_0 并重启，代价太高。
+ * 列表内容不满一屏时根本不会滚动，用户「想滑动」就会被当成点击。
  *
  * 用法：
  *   tap_gesture_attach(row);                                  // 内部挂 PRESSED / PRESS_LOST

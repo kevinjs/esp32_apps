@@ -286,7 +286,7 @@ void wifi_setup_open(void)
     s_root = lv_obj_create(screen);
     lv_obj_set_size(s_root, 466, 466);
     lv_obj_center(s_root);
-    ui_apply_gradient(s_root);
+    ui_bg_apply(s_root);
     lv_obj_set_scrollable(s_root, false);
     lv_obj_set_clickable(s_root, true);   /* 挡住下层列表的点击 */
 
@@ -320,7 +320,7 @@ void wifi_setup_open(void)
     s_pw_panel = lv_obj_create(s_root);
     lv_obj_set_size(s_pw_panel, 466, 466);
     lv_obj_center(s_pw_panel);
-    ui_apply_gradient(s_pw_panel);
+    ui_bg_apply(s_pw_panel);
     lv_obj_set_scrollable(s_pw_panel, false);
     lv_obj_set_hidden(s_pw_panel, true);
 

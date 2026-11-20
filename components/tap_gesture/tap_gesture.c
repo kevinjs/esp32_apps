@@ -4,7 +4,7 @@
 
 #include "esp_log.h"
 
-static const char *TAG = "selector.tap";
+static const char *TAG = "tap";
 
 #define TAP_MAX_DIST_PX 12
 #define TAP_MAX_MS      800
@@ -60,11 +60,11 @@ bool tap_gesture_was_tap(void)
     const int32_t dy = now.y - s_press.start.y;
 
     if ((dx * dx + dy * dy) > (TAP_MAX_DIST_PX * TAP_MAX_DIST_PX)) {
-        ESP_LOGI(TAG, "drag (%d,%d) ignored, not a tap", (int)dx, (int)dy);
+        ESP_LOGD(TAG, "drag (%d,%d) ignored", (int)dx, (int)dy);
         return false;
     }
     if (lv_tick_elaps(s_press.tick) > TAP_MAX_MS) {
-        ESP_LOGI(TAG, "long press ignored, not a tap");
+        ESP_LOGD(TAG, "long press ignored");
         return false;
     }
     return true;

@@ -448,7 +448,7 @@ void selector_ui_create(
     s_select_cb = cb;
 
     lv_obj_t *screen = lv_screen_active();
-    ui_apply_gradient(screen);
+    ui_bg_apply(screen);
     lv_obj_set_scrollable(screen, false);
 
     /*
