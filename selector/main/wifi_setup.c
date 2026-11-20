@@ -14,6 +14,8 @@
 #include "lvgl.h"
 
 #include "cjk_font.h"
+#include "tap_gesture.h"
+#include "ui_theme.h"
 #include "wifi_config.h"
 
 static const char *TAG = "selector.wifi";
@@ -160,7 +162,10 @@ static void show_password_panel(const char *ssid)
 
 static void ap_clicked_cb(lv_event_t *event)
 {
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    if (lv_event_get_code(event) != LV_EVENT_RELEASED) {
+        return;
+    }
+    if (!tap_gesture_was_tap()) {
         return;
     }
     const int index = (int)(intptr_t)lv_event_get_user_data(event);
@@ -197,7 +202,8 @@ static void rebuild_list(void)
         lv_obj_set_style_pad_all(row, 0, 0);
         lv_obj_set_scrollable(row, false);
         lv_obj_set_clickable(row, true);
-        lv_obj_add_event_cb(row, ap_clicked_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        tap_gesture_attach(row);
+        lv_obj_add_event_cb(row, ap_clicked_cb, LV_EVENT_RELEASED, (void *)(intptr_t)i);
 
         lv_obj_t *name = lv_label_create(row);
         lv_label_set_text_fmt(name, "%s", s_aps[i].ssid);
@@ -229,17 +235,19 @@ static void poll_timer_cb(lv_timer_t *timer)
 
 static void rescan_clicked_cb(lv_event_t *event)
 {
-    if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-        start_scan();
+    if (lv_event_get_code(event) != LV_EVENT_RELEASED || !tap_gesture_was_tap()) {
+        return;
     }
+    start_scan();
 }
 
 static void close_clicked_cb(lv_event_t *event)
 {
-    if (lv_event_get_code(event) == LV_EVENT_CLICKED) {
-        hide_password_panel();
-        lv_obj_set_hidden(s_root, true);
+    if (lv_event_get_code(event) != LV_EVENT_RELEASED || !tap_gesture_was_tap()) {
+        return;
     }
+    hide_password_panel();
+    lv_obj_set_hidden(s_root, true);
 }
 
 static lv_obj_t *make_button(lv_obj_t *parent, const char *text, int x, lv_event_cb_t cb)
@@ -254,7 +262,8 @@ static lv_obj_t *make_button(lv_obj_t *parent, const char *text, int x, lv_event
     lv_obj_set_style_pad_all(btn, 0, 0);
     lv_obj_set_scrollable(btn, false);
     lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, x, -44);   /* 圆屏下沿要留出弧度 */
-    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+    tap_gesture_attach(btn);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_RELEASED, NULL);
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
@@ -277,11 +286,7 @@ void wifi_setup_open(void)
     s_root = lv_obj_create(screen);
     lv_obj_set_size(s_root, 466, 466);
     lv_obj_center(s_root);
-    lv_obj_set_style_bg_color(s_root, lv_color_hex(COLOR_BG), 0);
-    lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_root, 0, 0);
-    lv_obj_set_style_radius(s_root, 0, 0);
-    lv_obj_set_style_pad_all(s_root, 0, 0);
+    ui_apply_gradient(s_root);
     lv_obj_set_scrollable(s_root, false);
     lv_obj_set_clickable(s_root, true);   /* 挡住下层列表的点击 */
 
@@ -315,11 +320,7 @@ void wifi_setup_open(void)
     s_pw_panel = lv_obj_create(s_root);
     lv_obj_set_size(s_pw_panel, 466, 466);
     lv_obj_center(s_pw_panel);
-    lv_obj_set_style_bg_color(s_pw_panel, lv_color_hex(COLOR_BG), 0);
-    lv_obj_set_style_bg_opa(s_pw_panel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_pw_panel, 0, 0);
-    lv_obj_set_style_radius(s_pw_panel, 0, 0);
-    lv_obj_set_style_pad_all(s_pw_panel, 0, 0);
+    ui_apply_gradient(s_pw_panel);
     lv_obj_set_scrollable(s_pw_panel, false);
     lv_obj_set_hidden(s_pw_panel, true);
 

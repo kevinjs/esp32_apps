@@ -18,7 +18,9 @@
 #include "nvs_flash.h"
 
 #include "boot_switch.h"
+#include "battery.h"
 #include "cjk_font.h"
+#include "clock_sync.h"
 #include "image_install.h"
 #include "image_store.h"
 #include "selector_ui.h"
@@ -49,10 +51,16 @@ void app_main(void)
     cfg.watch_boot_key = false;     /* 已经运行在 factory，不需要按键兜底 */
     boot_switch_init(&cfg);
 
-    /* 进选择器就连 Wi-Fi：后台连接不阻塞 UI，状态由底部标签定时刷新 */
+    /* 进选择器就连 Wi-Fi：后台连接不阻塞 UI，顶部图标随状态变色 */
     if (wifi_config_autoconnect() != ESP_OK) {
-        ESP_LOGI(TAG, "no Wi-Fi credentials yet, use the Wi-Fi button to configure");
+        ESP_LOGI(TAG, "no Wi-Fi credentials yet, use Settings -> Wi-Fi to configure");
     }
+
+    /* 状态栏用的电池与时间；任一失败都只是显示占位符，不影响选 app */
+    if (battery_init() != ESP_OK) {
+        ESP_LOGW(TAG, "battery unavailable, status bar keeps placeholder icon");
+    }
+    clock_sync_start();
 
     size_t fs_total = 0;
     size_t fs_used = 0;

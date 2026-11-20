@@ -8,26 +8,36 @@
 #include "esp_system.h"
 #include "lvgl.h"
 
+#include "battery.h"
 #include "cjk_font.h"
+#include "clock_sync.h"
 #include "image_install.h"
+#include "settings_ui.h"
+#include "tap_gesture.h"
+#include "ui_theme.h"
 #include "wifi_config.h"
-#include "wifi_setup.h"
 
 static const char *TAG = "selector.ui";
 
-#define COLOR_BG        0x000000
-#define COLOR_TEXT      0xF2F2F2
-#define COLOR_MUTED     0x7A7A7A
-#define COLOR_ROW       0x141414
-#define COLOR_ROW_EDGE  0x2A2A2A
-#define COLOR_OK        0x2ECC71
-#define COLOR_ERR       0xE74C3C
+/* 配色统一在 ui_theme.h，这里用短名字指代，避免改动过多老代码 */
+#define COLOR_BG        UI_COLOR_BG_TOP
+#define COLOR_TEXT      UI_COLOR_TEXT
+#define COLOR_MUTED     UI_COLOR_MUTED
+#define COLOR_ROW       UI_COLOR_ROW
+#define COLOR_ROW_EDGE  UI_COLOR_ROW_EDGE
+#define COLOR_OK        UI_COLOR_OK
+#define COLOR_ERR       UI_COLOR_ERR
 
 static const image_entry_t *s_images = NULL;
 static int s_count = 0;
 static selector_select_cb_t s_select_cb = NULL;
 
-static lv_obj_t *s_wifi_status = NULL;
+/* 顶部状态栏：Wi-Fi / 时间 / 电量 */
+static lv_obj_t *s_wifi_icon = NULL;
+static lv_obj_t *s_clock_label = NULL;
+static lv_obj_t *s_bat_charge = NULL;
+static lv_obj_t *s_bat_icon = NULL;
+static lv_obj_t *s_bat_text = NULL;
 
 static lv_obj_t *s_overlay = NULL;
 static lv_obj_t *s_overlay_title = NULL;
@@ -57,9 +67,12 @@ static void overlay_show(bool visible)
     }
 }
 
-static void on_row_clicked(lv_event_t *event)
+static void on_row_released(lv_event_t *event)
 {
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED || s_select_cb == NULL) {
+    if (lv_event_get_code(event) != LV_EVENT_RELEASED || s_select_cb == NULL) {
+        return;
+    }
+    if (!tap_gesture_was_tap()) {
         return;
     }
 
@@ -97,16 +110,19 @@ static void on_overlay_clicked(lv_event_t *event)
     }
 }
 
-static void on_wifi_clicked(lv_event_t *event)
+static void on_settings_released(lv_event_t *event)
 {
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    if (lv_event_get_code(event) != LV_EVENT_RELEASED) {
+        return;
+    }
+    if (!tap_gesture_was_tap()) {
         return;
     }
     if (lv_tick_get() - s_created_tick < CLICK_GUARD_MS) {
         ESP_LOGI(TAG, "ignoring touch during startup guard");
         return;
     }
-    wifi_setup_open();
+    settings_open();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -123,7 +139,8 @@ static lv_obj_t *create_row(lv_obj_t *parent, const image_entry_t *entry, int in
     lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_set_scrollable(row, false);
     lv_obj_set_clickable(row, true);
-    lv_obj_add_event_cb(row, on_row_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)index);
+    tap_gesture_attach(row);
+    lv_obj_add_event_cb(row, on_row_released, LV_EVENT_RELEASED, (void *)(intptr_t)index);
 
     lv_obj_t *name = lv_label_create(row);
     lv_label_set_text(name, entry->name);
@@ -138,6 +155,102 @@ static lv_obj_t *create_row(lv_obj_t *parent, const image_entry_t *entry, int in
     lv_obj_align(version, LV_ALIGN_LEFT_MID, 16, 12);
 
     return row;
+}
+
+/* 设置入口：和应用行同样大小，排在列表末尾，和 app 平级 */
+static void create_settings_row(lv_obj_t *parent)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_size(row, 300, 56);
+    lv_obj_set_style_bg_color(row, lv_color_hex(COLOR_ROW), 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_80, 0);
+    lv_obj_set_style_radius(row, 14, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(COLOR_ROW_EDGE), 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_set_scrollable(row, false);
+    lv_obj_set_clickable(row, true);
+    tap_gesture_attach(row);
+    lv_obj_add_event_cb(row, on_settings_released, LV_EVENT_RELEASED, NULL);
+
+    /* 图标只能用 Montserrat：CJK 字体里没有 LV_SYMBOL_* 的字形 */
+    lv_obj_t *icon = lv_label_create(row);
+    lv_label_set_text(icon, LV_SYMBOL_SETTINGS);
+    lv_obj_set_style_text_color(icon, lv_color_hex(UI_COLOR_ACCENT_2), 0);
+    lv_obj_set_style_text_font(icon, &lv_font_montserrat_20, 0);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 18, 0);
+
+    lv_obj_t *name = lv_label_create(row);
+    lv_label_set_text(name, "设置");
+    lv_obj_set_style_text_color(name, lv_color_hex(COLOR_TEXT), 0);
+    lv_obj_set_style_text_font(name, cjk_font_or(16, &lv_font_montserrat_16), 0);
+    lv_obj_align(name, LV_ALIGN_LEFT_MID, 56, -8);
+
+    lv_obj_t *sub = lv_label_create(row);
+    lv_label_set_text(sub, "Wi-Fi / 时间 / 存储");
+    lv_obj_set_style_text_color(sub, lv_color_hex(COLOR_MUTED), 0);
+    lv_obj_set_style_text_font(sub, cjk_font_or(14, &lv_font_montserrat_14), 0);
+    lv_obj_align(sub, LV_ALIGN_LEFT_MID, 56, 12);
+
+    lv_obj_t *arrow = lv_label_create(row);
+    lv_label_set_text(arrow, LV_SYMBOL_RIGHT);
+    lv_obj_set_style_text_color(arrow, lv_color_hex(UI_COLOR_DIM), 0);
+    lv_obj_set_style_text_font(arrow, &lv_font_montserrat_16, 0);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -14, 0);
+}
+
+/*
+ * 顶部状态栏：Wi-Fi 图标 | 时间 | 电量
+ * 宽度 240 是按圆屏 y≈32 处的可用弦宽取的（上下都留了边）。
+ */
+static void create_status_bar(lv_obj_t *screen)
+{
+    lv_obj_t *bar = lv_obj_create(screen);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_size(bar, 240, 26);
+    lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 32);
+    lv_obj_set_scrollable(bar, false);
+
+    /*
+     * 不用 flex 分配宽度：时间单独居中（相对状态栏居中 = 相对屏幕居中），
+     * 两侧图标各自贴边，时间就不会因为左右内容宽度不同而偏。
+     */
+    s_clock_label = lv_label_create(bar);
+    lv_label_set_text(s_clock_label, "--:--");
+    lv_obj_set_style_text_color(s_clock_label, lv_color_hex(COLOR_TEXT), 0);
+    lv_obj_set_style_text_font(s_clock_label, &lv_font_montserrat_20, 0);
+    lv_obj_align(s_clock_label, LV_ALIGN_CENTER, 0, 0);
+
+    s_wifi_icon = lv_label_create(bar);
+    lv_label_set_text(s_wifi_icon, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_color(s_wifi_icon, lv_color_hex(UI_COLOR_DIM), 0);
+    lv_obj_set_style_text_font(s_wifi_icon, &lv_font_montserrat_20, 0);
+    /* 离左边缘留一点距离，避免贴到圆屏弧线 */
+    lv_obj_align(s_wifi_icon, LV_ALIGN_LEFT_MID, 16, 0);
+
+    lv_obj_t *bat_box = lv_obj_create(bar);
+    lv_obj_remove_style_all(bat_box);
+    lv_obj_set_size(bat_box, LV_SIZE_CONTENT, 26);
+    lv_obj_align(bat_box, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_flex_flow(bat_box, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(bat_box, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(bat_box, 4, 0);
+    lv_obj_set_scrollable(bat_box, false);
+
+    s_bat_charge = lv_label_create(bat_box);
+    lv_label_set_text(s_bat_charge, "");
+    lv_obj_set_style_text_color(s_bat_charge, lv_color_hex(UI_COLOR_WARN), 0);
+    lv_obj_set_style_text_font(s_bat_charge, &lv_font_montserrat_16, 0);
+
+    s_bat_icon = lv_label_create(bat_box);
+    lv_label_set_text(s_bat_icon, LV_SYMBOL_BATTERY_EMPTY);
+    lv_obj_set_style_text_color(s_bat_icon, lv_color_hex(UI_COLOR_DIM), 0);
+    lv_obj_set_style_text_font(s_bat_icon, &lv_font_montserrat_20, 0);
+
+    s_bat_text = lv_label_create(bat_box);
+    lv_label_set_text(s_bat_text, "");
+    lv_obj_set_style_text_color(s_bat_text, lv_color_hex(COLOR_MUTED), 0);
+    lv_obj_set_style_text_font(s_bat_text, &lv_font_montserrat_14, 0);
 }
 
 static void create_overlay(lv_obj_t *screen)
@@ -238,33 +351,82 @@ static void poll_timer_cb(lv_timer_t *timer)
 
 /* -------------------------------------------------------------------------- */
 
-/** 每秒刷新底部 Wi-Fi 状态；设置页保存后无需手动通知。 */
-static void refresh_wifi_status(lv_timer_t *timer)
+static const char *battery_symbol(uint8_t percent)
+{
+    if (percent >= 90) {
+        return LV_SYMBOL_BATTERY_FULL;
+    }
+    if (percent >= 70) {
+        return LV_SYMBOL_BATTERY_3;
+    }
+    if (percent >= 45) {
+        return LV_SYMBOL_BATTERY_2;
+    }
+    if (percent >= 20) {
+        return LV_SYMBOL_BATTERY_1;
+    }
+    return LV_SYMBOL_BATTERY_EMPTY;
+}
+
+/** 每秒刷新时间与 Wi-Fi 图标；电量 30 s 一次，避免频繁占用 I2C */
+static void status_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    static char last[160];
+    static int battery_ticks = 0;
 
-    wifi_cred_t cred;
-    const bool has_cred = (wifi_config_load(&cred) == ESP_OK);
-    const char *ssid = has_cred ? cred.ssid : NULL;
-    const wifi_config_state_t state = wifi_config_get_state();
-
-    char buf[160];
-    if (state == WIFI_CFG_STATE_CONNECTED) {
-        snprintf(buf, sizeof(buf), "wifi: %s 已连接 %s", ssid ? ssid : "", wifi_config_get_ip());
-    } else if (state == WIFI_CFG_STATE_CONNECTING) {
-        snprintf(buf, sizeof(buf), "wifi: %s 连接中…", ssid ? ssid : "");
-    } else if (ssid == NULL) {
-        snprintf(buf, sizeof(buf), "wifi: 未设置，点右侧按钮配置");
-    } else {
-        snprintf(buf, sizeof(buf), "wifi: %s 未连接", ssid);
+    char hhmm[8];
+    clock_sync_hhmm(hhmm, sizeof(hhmm));
+    if (s_clock_label != NULL && strcmp(lv_label_get_text(s_clock_label), hhmm) != 0) {
+        lv_label_set_text(s_clock_label, hhmm);
     }
 
-    if (s_wifi_status == NULL || strcmp(buf, last) == 0) {
+    if (s_wifi_icon != NULL) {
+        const wifi_config_state_t state = wifi_config_get_state();
+        uint32_t color = UI_COLOR_DIM;
+        if (state == WIFI_CFG_STATE_CONNECTED) {
+            color = UI_COLOR_OK;
+        } else if (state == WIFI_CFG_STATE_CONNECTING) {
+            color = UI_COLOR_WARN;
+        }
+        lv_obj_set_style_text_color(s_wifi_icon, lv_color_hex(color), 0);
+    }
+
+    if (battery_ticks-- > 0) {
         return;
     }
-    strlcpy(last, buf, sizeof(last));
-    lv_label_set_text(s_wifi_status, buf);
+    battery_ticks = 30;
+
+    battery_info_t info;
+    if (battery_read(&info) != ESP_OK) {
+        return;
+    }
+
+    if (!info.present) {
+        lv_label_set_text(s_bat_icon, LV_SYMBOL_BATTERY_EMPTY);
+        lv_obj_set_style_text_color(s_bat_icon, lv_color_hex(UI_COLOR_DIM), 0);
+        lv_label_set_text(s_bat_charge, "");
+        lv_label_set_text(s_bat_text, "");
+        return;
+    }
+
+    /* 图标配色：充电黄 / 满电绿 / 其余白；百分比文字固定灰色 */
+    uint32_t icon_color = UI_COLOR_TEXT;
+    if (info.charging) {
+        icon_color = UI_COLOR_WARN;
+    } else if (info.percent >= 100) {
+        icon_color = UI_COLOR_OK;
+    }
+
+    lv_label_set_text(s_bat_icon, battery_symbol(info.percent));
+    lv_obj_set_style_text_color(s_bat_icon, lv_color_hex(icon_color), 0);
+    lv_label_set_text(s_bat_charge, info.charging ? LV_SYMBOL_CHARGE : "");
+
+    char pct_text[8];
+    snprintf(pct_text, sizeof(pct_text), "%u%%", (unsigned)info.percent);
+    lv_label_set_text(s_bat_text, pct_text);
+
+    ESP_LOGI(TAG, "battery %u%% %u mV charging=%d",
+             (unsigned)info.percent, (unsigned)info.millivolt, (int)info.charging);
 }
 
 void selector_ui_create(
@@ -280,8 +442,7 @@ void selector_ui_create(
     s_select_cb = cb;
 
     lv_obj_t *screen = lv_screen_active();
-    lv_obj_set_style_bg_color(screen, lv_color_hex(COLOR_BG), 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+    ui_apply_gradient(screen);
     lv_obj_set_scrollable(screen, false);
 
     /*
@@ -292,15 +453,12 @@ void selector_ui_create(
      *   y=320 处约 219
      *   y=400 处约 152
      */
-    lv_obj_t *title = lv_label_create(screen);
-    lv_label_set_text(title, "APPS");
-    lv_obj_set_style_text_color(title, lv_color_hex(COLOR_MUTED), 0);
-    lv_obj_set_style_text_font(title, cjk_font_or(20, &lv_font_montserrat_20), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
+    create_status_bar(screen);
 
+    /* 列表：3 行 app + 分隔线 + 设置行，超出就上下滑 */
     lv_obj_t *list = lv_obj_create(screen);
     lv_obj_set_size(list, 320, 250);
-    lv_obj_align(list, LV_ALIGN_CENTER, 0, -40);
+    lv_obj_align(list, LV_ALIGN_CENTER, 0, -38);
     lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(list, 0, 0);
     lv_obj_set_style_pad_all(list, 0, 0);
@@ -322,48 +480,24 @@ void selector_ui_create(
         }
     }
 
-    /* Wi-Fi 设置入口：底部安全区内，整条 150x42 都可点 */
-    lv_obj_t *wifi_btn = lv_obj_create(screen);
-    lv_obj_set_size(wifi_btn, 150, 42);
-    lv_obj_align(wifi_btn, LV_ALIGN_BOTTOM_MID, 0, -100);
-    lv_obj_set_style_bg_color(wifi_btn, lv_color_hex(COLOR_ROW), 0);
-    lv_obj_set_style_bg_opa(wifi_btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(wifi_btn, 21, 0);
-    lv_obj_set_style_border_width(wifi_btn, 1, 0);
-    lv_obj_set_style_border_color(wifi_btn, lv_color_hex(COLOR_ROW_EDGE), 0);
-    lv_obj_set_style_pad_all(wifi_btn, 0, 0);
-    lv_obj_set_scrollable(wifi_btn, false);
-    lv_obj_set_clickable(wifi_btn, true);
-    lv_obj_add_event_cb(wifi_btn, on_wifi_clicked, LV_EVENT_CLICKED, NULL);
+    /* 设置入口和应用行同级，中间加一条细分隔线 */
+    lv_obj_t *divider = lv_obj_create(list);
+    lv_obj_set_size(divider, 260, 1);
+    lv_obj_set_style_bg_color(divider, lv_color_hex(COLOR_ROW_EDGE), 0);
+    lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(divider, 0, 0);
+    lv_obj_set_style_radius(divider, 0, 0);
+    lv_obj_set_style_pad_all(divider, 0, 0);
+    lv_obj_set_scrollable(divider, false);
+    create_settings_row(list);
 
-    lv_obj_t *wifi_label = lv_label_create(wifi_btn);
-    lv_label_set_text(wifi_label, "WIFI SETUP");
-    lv_obj_set_style_text_color(wifi_label, lv_color_hex(COLOR_TEXT), 0);
-    lv_obj_set_style_text_font(wifi_label, cjk_font_or(14, &lv_font_montserrat_14), 0);
-    lv_obj_center(wifi_label);
-
-    lv_obj_t *footer = lv_label_create(screen);
-    lv_label_set_text_fmt(
-        footer, "%d %s | %.1f / %.1f MB used",
-        count,
-        count == 1 ? "image" : "images",
-        (double)fs_used / (1024.0 * 1024.0),
-        (double)(fs_total / (1024.0 * 1024.0))
-    );
-    lv_obj_set_style_text_color(footer, lv_color_hex(0x555555), 0);
-    lv_obj_set_style_text_font(footer, cjk_font_or(14, &lv_font_montserrat_14), 0);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -58);
-
-    s_wifi_status = lv_label_create(screen);
-    lv_label_set_text(s_wifi_status, "");
-    lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(COLOR_MUTED), 0);
-    lv_obj_set_style_text_font(s_wifi_status, cjk_font_or(14, &lv_font_montserrat_14), 0);
-    lv_obj_align(s_wifi_status, LV_ALIGN_BOTTOM_MID, 0, -34);
-    refresh_wifi_status(NULL);
-    lv_timer_create(refresh_wifi_status, 1000, NULL);
+    /* 存储用量改到设置页展示，这里只留日志方便排查 */
+    ESP_LOGI(TAG, "storage %u/%u bytes", (unsigned)fs_used, (unsigned)fs_total);
 
     create_overlay(screen);
 
     s_created_tick = lv_tick_get();
     lv_timer_create(poll_timer_cb, 100, NULL);
+    lv_timer_create(status_timer_cb, 1000, NULL);
+    status_timer_cb(NULL);   /* 首帧就带上时间/电量，不用等 1 s */
 }
