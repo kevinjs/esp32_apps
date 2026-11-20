@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "lvgl.h"
 
+#include "app_settings.h"
 #include "cjk_font.h"
 #include "image_store.h"
 #include "tap_gesture.h"
@@ -24,6 +25,8 @@ static lv_obj_t *s_root = NULL;
 static lv_obj_t *s_wifi_sub = NULL;
 static lv_obj_t *s_storage_sub = NULL;
 static lv_obj_t *s_storage_bar = NULL;
+static lv_obj_t *s_vol_slider = NULL;
+static lv_obj_t *s_vol_label = NULL;
 
 /* LVGL 自带 snprintf 不支持 %f（CONFIG_LV_USE_FLOAT=n），小数位用整数算 */
 static void format_mb(char *buf, size_t len, size_t bytes)
@@ -209,6 +212,94 @@ static void make_storage_row(lv_obj_t *parent)
     lv_obj_set_style_bg_grad_dir(s_storage_bar, LV_GRAD_DIR_HOR, LV_PART_INDICATOR);
 }
 
+/* 音量变化：拖动时只更新文字，松手才写 NVS（避免每移动一格都 commit） */
+static void volume_changed_cb(lv_event_t *event)
+{
+    lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(event);
+    const int volume = (int)lv_slider_get_value(slider);
+
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d%%", volume);
+    lv_label_set_text(s_vol_label, buf);
+
+    if (lv_event_get_code(event) == LV_EVENT_RELEASED) {
+        app_settings_set_speaker_volume(volume);
+        ESP_LOGI(TAG, "speaker volume -> %d%%", volume);
+    }
+}
+
+/* 扬声器行：图标 + 标题 + 百分比 + 滑杆（滑杆自己处理手势，行本身不响应点击） */
+static void make_speaker_row(lv_obj_t *parent)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_size(row, 300, 80);
+    lv_obj_set_style_bg_color(row, lv_color_hex(UI_COLOR_ROW), 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_80, 0);
+    lv_obj_set_style_radius(row, 16, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(UI_COLOR_ROW_EDGE), 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_set_scrollable(row, false);
+
+    lv_obj_t *icon = lv_label_create(row);
+    lv_label_set_text(icon, LV_SYMBOL_VOLUME_MAX);
+    lv_obj_set_style_text_color(icon, lv_color_hex(UI_COLOR_ACCENT_2), 0);
+    lv_obj_set_style_text_font(icon, &lv_font_montserrat_20, 0);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, 18, -6);
+
+    lv_obj_t *title = lv_label_create(row);
+    lv_label_set_text(title, "扬声器");
+    lv_obj_set_style_text_color(title, lv_color_hex(UI_COLOR_TEXT), 0);
+    lv_obj_set_style_text_font(title, cjk_font_or(18, &lv_font_montserrat_16), 0);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, 62, -24);
+
+    s_vol_label = lv_label_create(row);
+    lv_label_set_text(s_vol_label, "");
+    lv_obj_set_style_text_color(s_vol_label, lv_color_hex(UI_COLOR_MUTED), 0);
+    lv_obj_set_style_text_font(s_vol_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(s_vol_label, LV_ALIGN_RIGHT_MID, -16, -24);
+
+    s_vol_slider = lv_slider_create(row);
+    lv_obj_set_size(s_vol_slider, 200, 8);
+    lv_obj_align(s_vol_slider, LV_ALIGN_LEFT_MID, 62, 22);
+    lv_slider_set_range(s_vol_slider, 0, 100);
+    lv_slider_set_value(s_vol_slider, app_settings_get_speaker_volume(), LV_ANIM_OFF);
+
+    lv_obj_set_style_radius(s_vol_slider, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_vol_slider, lv_color_hex(UI_COLOR_TRACK), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_vol_slider, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_obj_set_style_radius(s_vol_slider, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_vol_slider, lv_color_hex(UI_COLOR_ACCENT), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_grad_color(s_vol_slider, lv_color_hex(UI_COLOR_ACCENT_2), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_grad_dir(s_vol_slider, LV_GRAD_DIR_HOR, LV_PART_INDICATOR);
+
+    lv_obj_set_style_bg_color(s_vol_slider, lv_color_hex(UI_COLOR_TEXT), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(s_vol_slider, 3, LV_PART_KNOB);   /* 旋钮 8+6=14 px */
+
+    lv_obj_add_event_cb(s_vol_slider, volume_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(s_vol_slider, volume_changed_cb, LV_EVENT_RELEASED, NULL);
+
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d%%", app_settings_get_speaker_volume());
+    lv_label_set_text(s_vol_label, buf);
+}
+
+/* 每次打开设置页都按 NVS 里的最新值刷新（app 里也可能改过） */
+static void refresh_volume(void)
+{
+    if (s_vol_slider == NULL) {
+        return;
+    }
+
+    const int volume = app_settings_get_speaker_volume();
+    lv_slider_set_value(s_vol_slider, volume, LV_ANIM_OFF);
+
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d%%", volume);
+    lv_label_set_text(s_vol_label, buf);
+}
+
 static void create_root(void)
 {
     lv_obj_t *screen = lv_screen_active();
@@ -228,24 +319,19 @@ static void create_root(void)
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 40);
 
     lv_obj_t *list = lv_obj_create(s_root);
-    lv_obj_set_size(list, 320, 236);
+    lv_obj_set_size(list, 320, 256);
     lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 90);
     lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(list, 0, 0);
     lv_obj_set_style_pad_all(list, 0, 0);
-    lv_obj_set_style_pad_row(list, 12, 0);
+    lv_obj_set_style_pad_row(list, 10, 0);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
 
     make_row(list, LV_SYMBOL_WIFI, "Wi-Fi", wifi_clicked_cb, &s_wifi_sub);
+    make_speaker_row(list);
     make_storage_row(list);
-
-    lv_obj_t *hint = lv_label_create(s_root);
-    lv_label_set_text(hint, "更多设置项后续加入");
-    lv_obj_set_style_text_color(hint, lv_color_hex(UI_COLOR_DIM), 0);
-    lv_obj_set_style_text_font(hint, cjk_font_or(14, &lv_font_montserrat_14), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -104);
 
     /*
      * 返回按钮放底部：圆屏左上角在 y≈30 处可用宽度只有 ~220，
@@ -285,6 +371,7 @@ void settings_open(void)
         create_root();
     }
     refresh_wifi_subtitle();
+    refresh_volume();
     refresh_storage();
     lv_obj_set_hidden(s_root, false);
     lv_obj_move_to_index(s_root, -1);

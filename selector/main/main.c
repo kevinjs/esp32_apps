@@ -23,6 +23,7 @@
 #include "clock_sync.h"
 #include "image_install.h"
 #include "image_store.h"
+#include "screen_power.h"
 #include "selector_ui.h"
 #include "wifi_config.h"
 
@@ -59,6 +60,8 @@ void app_main(void)
     /* 状态栏用的电池与时间；任一失败都只是显示占位符，不影响选 app */
     if (battery_init() != ESP_OK) {
         ESP_LOGW(TAG, "battery unavailable, status bar keeps placeholder icon");
+    } else if (battery_power_key_init() != ESP_OK) {
+        ESP_LOGW(TAG, "power key unavailable, screen stays on");
     }
     clock_sync_start();
 
@@ -79,6 +82,9 @@ void app_main(void)
         ESP_LOGE(TAG, "display init failed");
         return;
     }
+
+    /* 记录亮度与触摸设备，供电源键切换息屏使用 */
+    screen_power_init();
 
     /* 中文字库从 storage 读（selector 的 factory 分区放不下 2MB 字库） */
     if (cjk_font_init() != ESP_OK) {

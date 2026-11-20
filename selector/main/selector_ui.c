@@ -12,6 +12,7 @@
 #include "cjk_font.h"
 #include "clock_sync.h"
 #include "image_install.h"
+#include "screen_power.h"
 #include "settings_ui.h"
 #include "tap_gesture.h"
 #include "ui_theme.h"
@@ -302,6 +303,11 @@ static void create_overlay(lv_obj_t *screen)
 static void poll_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+
+    /* 电源键单击 = 息屏/亮屏；息屏期间触摸设备被禁用，界面不响应任何点击 */
+    if (battery_power_key_clicked()) {
+        screen_power_toggle();
+    }
 
     image_install_status_t status;
     image_install_status(&status);

@@ -25,7 +25,12 @@ static const char *TAG = "selector.bat";
 #define AXP_REG_ADC_CH_CTRL  0x30
 #define AXP_REG_BAT_VOLT_H   0x34
 #define AXP_REG_BAT_VOLT_L   0x35
+#define AXP_REG_INTEN2       0x41
+#define AXP_REG_INTSTS2      0x49
 #define AXP_REG_BAT_PERCENT  0xA4
+
+/* PWRKEY 短按是 24 bit 中断里的 bit11，落在 INTEN2/INTSTS2 的 bit3 */
+#define AXP_PKEY_SHORT_BIT   0x08
 
 #define I2C_TIMEOUT_MS       100
 
@@ -138,4 +143,45 @@ esp_err_t battery_read(battery_info_t *out)
         out->percent = percent_from_millivolt(out->millivolt);
     }
     return ESP_OK;
+}
+
+/* 板上没有把 AXP2101 的 IRQ 引脚接到 ESP32，只能读 INTSTS 轮询；写 1 清除 */
+static void clear_pkey_short(void)
+{
+    const uint8_t buf[2] = { AXP_REG_INTSTS2, AXP_PKEY_SHORT_BIT };
+    i2c_master_transmit(s_dev, buf, sizeof(buf), I2C_TIMEOUT_MS);
+}
+
+esp_err_t battery_power_key_init(void)
+{
+    if (s_dev == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint8_t status = 0;
+    if (reg_read(AXP_REG_INTSTS2, &status) == ESP_OK && (status & AXP_PKEY_SHORT_BIT) != 0) {
+        clear_pkey_short();   /* 上电过程中可能残留一次，先清掉 */
+    }
+
+    const esp_err_t err = reg_update_bits(AXP_REG_INTEN2, AXP_PKEY_SHORT_BIT, AXP_PKEY_SHORT_BIT);
+    ESP_LOGI(TAG, "PWRKEY short-press irq %s", err == ESP_OK ? "enabled" : "failed");
+    return err;
+}
+
+bool battery_power_key_clicked(void)
+{
+    if (s_dev == NULL) {
+        return false;
+    }
+
+    uint8_t status = 0;
+    if (reg_read(AXP_REG_INTSTS2, &status) != ESP_OK) {
+        return false;
+    }
+    if ((status & AXP_PKEY_SHORT_BIT) == 0) {
+        return false;
+    }
+
+    clear_pkey_short();
+    return true;
 }

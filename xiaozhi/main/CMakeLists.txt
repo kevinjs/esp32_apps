@@ -12,6 +12,7 @@ idf_component_register(
         boot_switch
         wifi_config
         cjk_font
+        app_settings
         esp_xiaozhi
         mcp-c-sdk
         esp_audio_codec

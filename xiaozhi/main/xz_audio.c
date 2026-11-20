@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "app_settings.h"
 #include "bsp/esp-bsp.h"
 #include "driver/i2s_std.h"
 #include "esp_audio_dec.h"
@@ -275,8 +276,11 @@ esp_err_t xz_audio_init(xz_audio_capture_cb_t cb, void *ctx)
         return ESP_FAIL;
     }
 
-    esp_codec_dev_set_out_vol(s_spk, CONFIG_XZ_SPK_VOLUME);
+    /* 音量统一由 selector 设置页写进 NVS（app_settings），Kconfig 值只作默认 */
+    const int volume = app_settings_get_speaker_volume();
+    esp_codec_dev_set_out_vol(s_spk, volume);
     esp_codec_dev_set_in_gain(s_mic, (float)CONFIG_XZ_MIC_GAIN_DB);
+    ESP_LOGI(TAG, "speaker volume %d%%", volume);
 
     if (opus_codec_init() != ESP_OK) {
         return ESP_FAIL;
