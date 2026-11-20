@@ -23,6 +23,7 @@ manifest.json               # 脚本自动生成，不要手改
 | --- | --- | --- |
 | `app-xiaozhi-0.1.4.bin` | 2,113,520 B | 小智语音助手；音量改由 selector 设置页统一管理 |
 | `app-gmeter-1.0.0.bin` | 745,312 B | 骑行加速度计 |
+| `app-watch-0.1.5.bin` | 1,417,504 B | 怀表：指针表盘（刻度数字 + 日期窗）+ 秒表；watch 0.1.5 = sha256 `3423b8e6e2da…` |
 | `font-cjk.ttf` | 2,111,252 B | CJK 共享字库（selector 与所有 app 共用） |
 
 `manifest.json` 由脚本生成，不进仓库；最近一次打包：`partition_table=1a71e702`，
