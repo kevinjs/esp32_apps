@@ -34,6 +34,8 @@
 `⚙ 设置` → 设置页（`settings_ui.c`），页面只创建一次，关闭只是隐藏：
 
 - **Wi-Fi**：副标题显示 SSID / IP / 状态，点进去是扫描 + 密码键盘页（`wifi_setup.c`）
+- **扬声器**：0~100 滑杆 + 百分比，拖动时只更新文字，**松手才写 NVS**
+  （`components/app_settings`，namespace `app_cfg` / key `spk_vol`，默认 60）
 - **存储**：`4.7 / 18.1 MB  26%` + 进度条，分母是 SPIFFS **数据区容量**
   （`esp_spiffs_info()`，已扣掉索引页和 GC 块），不是 21MB 分区容量
 - 底部「◀ 返回」退出。圆屏左上角在 y≈30 处可用宽度只有约 220 px，
@@ -91,7 +93,7 @@ idf.py build
 ## 依赖
 
 - `waveshare/esp32_s3_touch_amoled_1_75c`（BSP，含 LVGL 9.x）
-- 共享组件：`../components/boot_switch`、`../components/cjk_font`、`../components/wifi_config`
+- 共享组件：`../components/boot_switch`、`../components/cjk_font`、`../components/wifi_config`、`../components/app_settings`
 - IDF 自带 `spiffs` / `app_update` / `esp_app_format` / `esp_wifi` / `esp_netif` / `esp_driver_i2c`
 
 ## 已知限制

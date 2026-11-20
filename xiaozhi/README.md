@@ -3,7 +3,7 @@
 小智语音助手，直接用 `espressif/esp_xiaozhi` + 板级 BSP 实现，**不依赖 ESP-Brookesia**。
 与 `ride-gmeter` 平级：编译成普通 app 镜像，由 `selector` 装进 `ota_0` 启动，长按 BOOT 3 秒回到选择界面。
 
-当前发布版：**0.1.3**（`storage_src/app-xiaozhi-0.1.3.bin`，sha256 前缀 `300e5a6a7afe`）。
+当前发布版：**0.1.4**（`storage_src/app-xiaozhi-0.1.4.bin`，sha256 前缀 `f5d044f3ddf6`）。
 版本号只体现在镜像库文件名里，代码里没有版本宏；发新版时同步改这里和 `storage_src/README.md`。
 
 ## 结构
@@ -49,13 +49,13 @@ idf.py build
 # 2) 确认没问题再发布：旧版本挪进 _archive（同 id 只能留一份）
 New-Item -ItemType Directory ..\storage_src\_archive -Force | Out-Null
 Move-Item ..\storage_src\app-xiaozhi-<旧版本>.bin ..\storage_src\_archive\ -Force
-Copy-Item build\xiaozhi.bin ..\storage_src\app-xiaozhi-0.1.3.bin -Force
+Copy-Item build\xiaozhi.bin ..\storage_src\app-xiaozhi-0.1.4.bin -Force
 # 3) 重写 21MB 镜像库（约 70s，只动 storage 分区）
 ..\tools\pack_storage.ps1 -Flash
 ```
 
 打包日志里会打印每个 app 的 size 和 sha256 前 12 位，和 `storage_src/README.md`
-的「当前镜像库」表对一遍即可（0.1.3 = 2,113,152 B / `300e5a6a7afe`）。
+的「当前镜像库」表对一遍即可（0.1.4 = 2,113,520 B / `f5d044f3ddf6`）。
 
 > **不要用 `idf.py flash`**：它固定把镜像写到 `0x20000`（factory），会**覆盖 selector**。
 > 一旦 selector 被覆盖，长按 BOOT「回 selector」只会回到 factory 里那份旧的 xiaozhi，
@@ -204,6 +204,12 @@ powershell -File d:\code\esp32_learning\tmp\serial_mon.ps1 -Port COM3 -Seconds 1
 - BOOT 短按未绑定（避免与 `boot_switch` 的长按检测抢同一个 GPIO）
 
 ## 变更记录
+
+**2026-11-20（发布 0.1.4）**
+- 扬声器音量改由 selector 设置页统一管理：启动时读 `components/app_settings`
+  （NVS `app_cfg/spk_vol`），Kconfig 的 `CONFIG_XZ_SPK_VOLUME` 只作默认值
+- 发布件 `storage_src/app-xiaozhi-0.1.4.bin`（2,113,520 B，sha256 `f5d044f3ddf6…`），
+  0.1.3 归档到 `_archive/`
 
 **2026-11-19（发布 0.1.3）**
 - 界面定版，发布进 selector 镜像库：`storage_src/app-xiaozhi-0.1.3.bin`

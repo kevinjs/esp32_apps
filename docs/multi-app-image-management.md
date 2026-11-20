@@ -176,6 +176,21 @@ const char *wifi_config_get_ip(void);
 
 selector 负责配网（扫描 + 键盘），app 只管 `autoconnect()` 与读状态 —— 配网界面只写一份。
 
+### 4.8 `app_settings` 共享组件（跨 app 设置）
+
+selector 负责改、app 负责读，值存在 NVS（namespace `app_cfg`）：
+
+```c
+esp_err_t app_settings_init(void);
+int  app_settings_get_speaker_volume(void);          // 0..100，默认 60
+esp_err_t app_settings_set_speaker_volume(int vol);
+```
+
+- 目前只有扬声器音量：selector 设置页滑杆写入，xiaozhi 在 `esp_codec_dev_open()` 之后
+  用它设置 `esp_codec_dev_set_out_vol()`，Kconfig 的 `CONFIG_XZ_SPK_VOLUME` 只作默认值
+- **滑杆只在松手时 commit**，避免拖动过程中频繁写 flash
+- 以后加亮度、自动进上次 app、息屏时间等都在这里扩展，避免每个 app 各存一份
+
 ## 5. 关键风险与对策
 
 | 风险 | 说明 | 对策 |
@@ -193,7 +208,7 @@ selector 负责配网（扫描 + 键盘），app 只管 `autoconnect()` 与读�
 | --- | --- | --- |
 | M1 | 统一分区表、`boot_switch` 组件、PC 端打包/烧录脚本 | 已完成 |
 | M2 | selector app：SPIFFS 扫描、LVGL 列表、OTA 写入进度 | 已完成（含状态栏、设置页、手势判定） |
-| M3 | ride-gmeter 接入 `boot_switch` + 退出入口；第二个 app 接入验证 | 已完成（ride-gmeter + xiaozhi 0.1.3） |
+| M3 | ride-gmeter 接入 `boot_switch` + 退出入口；第二个 app 接入验证 | 已完成（ride-gmeter + xiaozhi 0.1.4） |
 | M4 | （可选）自动启动上次 app、图标与中文名称（manifest） | 待评估 |
 | M5 | （可选）Android USB 直刷工具作为救砖兜底 | 待评估 |
 | M6 | （可选）Brookesia super 作为 `ota_0` 里的一个镜像接入 | 待评估 |
