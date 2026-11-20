@@ -151,6 +151,31 @@ esp_err_t boot_switch_set_boot_slot(const char *label);          // 切到指定
 
 按键语义（以 ride-gmeter 为例）：短按松开（≤1s）= 重新标定；长按 3s = 回 selector。`button_poll()` 只在松开时判断按压时长，长按由 `boot_switch` 在 3s 时刻直接重启，两条路径不会互相触发。1~3s 之间是死区，双方都不响应。
 
+### 4.6 `cjk_font` 共享组件（中文显示）
+
+字体不编进固件，而是打一份 `font-cjk.ttf` 进 `storage`，运行时用 tiny_ttf 从 SPIFFS 读进 PSRAM：
+
+```c
+esp_err_t cjk_font_init(void);                              // 挂载 storage 后调用
+const lv_font_t *cjk_font_or(int px, const lv_font_t *fb);   // px 档位不存在时返回 fb
+```
+
+- 档位按需加载（18/20/26 px 等），每档独立占 PSRAM
+- **`LV_SYMBOL_*` 图标不能用这个字体**：CJK TTF 里没有 FontAwesome 字形，必须显式用 `&lv_font_montserrat_xx`
+- 好处：selector 和每个 app 共用一份字体，省下 ~2MB 固件空间
+
+### 4.7 `wifi_config` 共享组件（配网状态）
+
+```c
+esp_err_t wifi_config_load(wifi_cred_t *out);      // NVS 里的 SSID/密码
+esp_err_t wifi_config_save(const char *ssid, const char *pass);
+esp_err_t wifi_config_autoconnect(void);           // 后台连接，不阻塞 UI
+wifi_config_state_t wifi_config_get_state(void);   // DISCONNECTED / CONNECTING / CONNECTED
+const char *wifi_config_get_ip(void);
+```
+
+selector 负责配网（扫描 + 键盘），app 只管 `autoconnect()` 与读状态 —— 配网界面只写一份。
+
 ## 5. 关键风险与对策
 
 | 风险 | 说明 | 对策 |
@@ -167,7 +192,7 @@ esp_err_t boot_switch_set_boot_slot(const char *label);          // 切到指定
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | M1 | 统一分区表、`boot_switch` 组件、PC 端打包/烧录脚本 | 已完成 |
-| M2 | selector app：SPIFFS 扫描、LVGL 列表、OTA 写入进度 | 本轮完成 |
+| M2 | selector app：SPIFFS 扫描、LVGL 列表、OTA 写入进度 | 已完成（含状态栏、设置页、手势判定） |
 | M3 | ride-gmeter 接入 `boot_switch` + 退出入口；第二个 app 接入验证 | 已完成（ride-gmeter + xiaozhi 0.1.3） |
 | M4 | （可选）自动启动上次 app、图标与中文名称（manifest） | 待评估 |
 | M5 | （可选）Android USB 直刷工具作为救砖兜底 | 待评估 |
