@@ -10,7 +10,7 @@
 
 ```
 xiaozhi/
-├─ CMakeLists.txt          # 只挂 ../components（boot_switch）
+├─ CMakeLists.txt          # 挂 ../components（boot_switch / cjk_font / face_avatar / ui_bg / app_settings / wifi_config）
 ├─ partitions.csv          # fleet.csv 副本，方案 A 不改分区表
 ├─ sdkconfig.defaults
 └─ main/
@@ -133,6 +133,10 @@ Copy-Item build\xiaozhi.bin ..\storage_src\app-xiaozhi-0.1.8.bin -Force
 界面自动退到 `xz_ui.c` 里那套 `lv_obj` 几何简笔脸，启动日志会打
 `shared avatar unavailable, using built-in face`。换表情只需重打 storage，
 **不用重编这个 app**。
+
+selector 里 xiaozhi 磁贴的图标也是从同一张 `face-idle.png` 生成的
+（`tools/make_app_icon.ps1 -NoCard -RadiusRatio 0.24` → `icon-xiaozhi@125.png`，
+125×125 铺满磁贴），列表和 app 内是同一个形象。
 
 ### 卡在「识别中」的两道兜底
 

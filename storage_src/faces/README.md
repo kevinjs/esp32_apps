@@ -78,3 +78,7 @@ if (face_avatar_init() == ESP_OK) {              // 缺 face-idle.bin 会返回 
 **不要对表情图用 `transform_scale` 做呼吸**：LVGL 的软件变换会给 192² 的图申请
 约 74 KB 中间缓冲，且落在内部 RAM（实测把 `dma_max` 从 40 KB 压到 31 KB，
 低于刷屏所需）。`LV_OPA` 在目标缓冲上逐像素混合，不额外占内存。
+
+这套素材同时用于 selector 的磁贴图标：`face-idle.png` 经
+`tools/make_app_icon.ps1 -NoCard` 生成 `storage_src/icon-xiaozhi@125.png`
+（圆角裁切、无卡片底），所以应用列表里看到的也是同一个形象。

@@ -321,5 +321,20 @@ xiaozhi（原生 ESP-IDF 版小智语音助手）成为镜像库里的第二个 
 - **同 id 只能保留一份** `.bin`，换版本时旧文件挪进 `storage_src/_archive/`
   （脚本非递归扫描，`_archive/` 不会被打进镜像，也不参与重复 id 检查）
 - 21 MB 镜像实际压缩到 3.0 MB 传输，`-b 921600` 下约 70 s；日常改 app 不必重打，
-  只有 app 发布件或共享资源（`font-cjk.ttf`）变了才需要
+  只有 app 发布件或共享资源（`font-cjk.ttf`、`faces/`、`icon-*`）变了才需要
 - 烧 storage 不影响 `nvs`（配网/标定）和 `ota_0`（当前运行 app），可随时重打
+
+### 9.8 共享表情包与磁贴图标（xiaozhi 0.1.8，2026-11-21）
+
+| 改动 | 要点 |
+| --- | --- |
+| `components/face_avatar` | `storage_src/faces/face-*.png` → `face-*.bin`（192² ARGB8888）→ PSRAM；10 张占 storage 1.47 MB、PSRAM 1.47 MB |
+| 打包 | 按不透明包围盒裁剪 + 等比缩放居中：素材 363~397 见方、构图各异，不对齐的话播报换帧时脸会跳 |
+| 渐变背景 | `ui_bg_apply(scr)`：466² RGB565 一张图 434 KB PSRAM，和 selector/watch 同一份实现 |
+| 磁贴图标 | `icon-<id>@<px>.png` = 满幅输出（`@125` 铺满 132 磁贴内部），selector 按 bin 尺寸 1:1 显示、不缩放 |
+| 无标题磁贴 | `APP_LOOKS.title` 空串 → 不画底部文字，图标垂直居中（有标题时上移 12 px） |
+
+踩坑：图片表情的"呼吸"动画一开始用 `transform_scale`，LVGL 会为 192² 图申请约 74 KB
+中间缓冲且落在**内部 RAM**，`[heap] run internal` 从 111 KB 掉到 72 KB、`dma_max` 从
+40 KB 掉到 31 KB（低于刷屏所需的 46 KB 连续块）。改用 `LV_OPA` 透明度呼吸后恢复。
+**图片对象不要做缩放变换**，用透明度或换帧表达动效。
