@@ -11,6 +11,7 @@ idf_component_register(
         esp_netif      # esp_netif_sntp（watch_time.c）
         esp_timer
         nvs_flash      # 时间回写 / 读取（watch_time.c）
+        app_settings   # 亮度等跨 app 的设置
         boot_switch
         cjk_font
         tap_gesture

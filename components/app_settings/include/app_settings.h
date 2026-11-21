@@ -13,6 +13,9 @@
 /** 默认音量（0..100），与 xiaozhi 的 Kconfig 默认值保持一致 */
 #define APP_SETTINGS_DEFAULT_VOLUME  60
 
+/** 默认亮度（10..100），下限 10 是为了避免调到 0 后黑屏、摸不到设置 */
+#define APP_SETTINGS_DEFAULT_BRIGHTNESS  80
+
 /** @brief 打开 NVS namespace；失败时所有 get 返回默认值、set 直接返回错误 */
 esp_err_t app_settings_init(void);
 
@@ -21,3 +24,9 @@ int app_settings_get_speaker_volume(void);
 
 /** @brief 写入并持久化扬声器音量；入参会被夹到 0..100 */
 esp_err_t app_settings_set_speaker_volume(int volume);
+
+/** @brief 屏幕亮度 10..100（未设置时返回 APP_SETTINGS_DEFAULT_BRIGHTNESS） */
+int app_settings_get_brightness(void);
+
+/** @brief 写入并持久化屏幕亮度；入参会被夹到 10..100 */
+esp_err_t app_settings_set_brightness(int percent);

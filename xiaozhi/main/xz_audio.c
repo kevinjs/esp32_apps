@@ -193,6 +193,7 @@ static void play_task(void *arg)
     }
 
     play_item_t item;
+    uint32_t played = 0;
 
     while (s_running) {
         if (xQueueReceive(s_play_queue, &item, pdMS_TO_TICKS(100)) != pdTRUE) {
@@ -232,6 +233,13 @@ static void play_task(void *arg)
 
         free(item.data);
         s_playing = false;
+
+        /* 诊断：解码/写喇叭这一段有没有吃内部 RAM */
+        if ((++played % 10) == 0) {
+            ESP_LOGI(TAG, "[heap] play %u int=%u dma=%u", (unsigned)played,
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+        }
     }
 
     free(pcm);
@@ -327,10 +335,19 @@ esp_err_t xz_audio_play_opus(const uint8_t *data, size_t len)
         return ESP_ERR_INVALID_ARG;
     }
 
+    /*
+     * 包缓冲优先放 PSRAM：解码是 CPU 逐字节读，不需要 DMA 能力。
+     * 用 malloc 的话（<16KB 会落进内部 RAM）每包都要在内部堆里申请/释放，
+     * 正好和 esp-aes 每包申请的临时 DMA 缓冲抢同一片内存，
+     * 多轮播报后 AES 那边就会 ESP_ERR_NO_MEM，音频包全部解不出来。
+     */
     play_item_t item = {
-        .data = malloc(len),
+        .data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
         .len = len,
     };
+    if (item.data == NULL) {
+        item.data = malloc(len);      /* PSRAM 拿不到时退回内部 RAM */
+    }
     if (item.data == NULL) {
         return ESP_ERR_NO_MEM;
     }

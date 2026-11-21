@@ -59,11 +59,27 @@ static void audio_capture_cb(const uint8_t *opus, size_t len, void *ctx)
 /* 内部 RAM（尤其 DMA 可用部分）不够时 LVGL 刷屏和 mbedtls 会静默失败，逐阶段打点 */
 static void log_heap(const char *stage)
 {
-    ESP_LOGI(TAG, "[heap] %-8s internal=%u dma=%u psram=%u",
+    ESP_LOGI(TAG, "[heap] %-8s internal=%u dma=%u dma_max=%u int_min=%u psram=%u",
              stage,
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
+
+/*
+ * 常驻打点：多轮对话播报时 esp-aes 每个音频包都要在内部 DMA 内存里申请临时缓冲，
+ * 一旦 dma_max（最大连续块）见底就解不出包、会话再也接不上。
+ * 每 5 秒打一行，用来区分"内存被吃光"和"只是碎片化"。
+ */
+static void heap_monitor_task(void *arg)
+{
+    (void)arg;
+    while (true) {
+        log_heap("run");
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -171,5 +187,9 @@ void app_main(void)
     BaseType_t created = xTaskCreate(app_task, "xz_app", 8192, NULL, 5, NULL);
     if (created != pdPASS) {
         ESP_LOGE(TAG, "failed to create app task");
+    }
+
+    if (xTaskCreate(heap_monitor_task, "xz_heap", 3072, NULL, 2, NULL) != pdPASS) {
+        ESP_LOGW(TAG, "heap monitor task create failed");
     }
 }

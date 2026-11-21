@@ -15,6 +15,7 @@
 
 #include "cjk_font.h"
 #include "tap_gesture.h"
+#include "ui_scroll_fx.h"
 #include "ui_theme.h"
 #include "wifi_config.h"
 
@@ -188,6 +189,7 @@ static void rebuild_list(void)
         lv_obj_set_style_text_color(empty, lv_color_hex(COLOR_MUTED), 0);
         lv_obj_set_style_text_font(empty, cjk_font_or(14, &lv_font_montserrat_14), 0);
         lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
+        ui_scroll_fx_refresh(s_list);
         return;
     }
 
@@ -217,6 +219,9 @@ static void rebuild_list(void)
         lv_obj_set_style_text_font(meta, cjk_font_or(14, &lv_font_montserrat_14), 0);
         lv_obj_align(meta, LV_ALIGN_RIGHT_MID, -14, 0);
     }
+
+    /* 整批重建后位置变了，重新算一遍淡出 */
+    ui_scroll_fx_refresh(s_list);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -312,6 +317,7 @@ void wifi_setup_open(void)
     lv_obj_set_flex_flow(s_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s_list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
+    ui_scroll_fx_attach(s_list, NULL);
 
     make_button(s_root, "RESCAN", -60, rescan_clicked_cb);
     make_button(s_root, "CLOSE", 60, close_clicked_cb);

@@ -7,11 +7,13 @@ idf_component_register(
         "xz_chat.c"
     INCLUDE_DIRS
         "."
-    # 中文字库不在镜像里：由 components/cjk_font 从 storage 分区读取
+    # 中文字库与表情包都不在镜像里：由 components 从 storage 分区读取
     PRIV_REQUIRES
         boot_switch
         wifi_config
         cjk_font
+        face_avatar
+        ui_bg
         app_settings
         esp_xiaozhi
         mcp-c-sdk

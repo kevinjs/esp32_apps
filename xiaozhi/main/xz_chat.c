@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mcp_engine.h"
 #include "esp_timer.h"
@@ -125,6 +126,17 @@ static void on_audio(const uint8_t *data, int len, void *ctx)
     if (data == NULL || len <= 0) {
         return;
     }
+
+    /* 诊断：每 10 包打一次内部 RAM 余量，用来确认内存在哪一段路上被吃掉 */
+    static uint32_t s_rx_count = 0;
+    const uint32_t count = ++s_rx_count;
+    if ((count % 10) == 1) {
+        ESP_LOGI(TAG, "[heap] rx %u int=%u dma=%u psram=%u", (unsigned)count,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    }
+
     xz_audio_play_opus(data, (size_t)len);
 }
 

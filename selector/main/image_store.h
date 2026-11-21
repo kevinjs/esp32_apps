@@ -38,6 +38,19 @@ int image_store_scan(image_entry_t *out, int max_count);
 /** @brief 查询 SPIFFS 容量，失败时返回 0。 */
 void image_store_info(size_t *total_bytes, size_t *used_bytes);
 
+/**
+ * @brief 读 app 的图标（pack_storage 转好的 LVGL 二进制：12 字节 header + 像素）
+ *
+ * 文件是 `icon-<id>.bin`（由 `icon-<id>.png` 打包时转换而来）；数据从 PSRAM 分配，
+ * 调用方用完自行 heap_caps_free()。
+ *
+ * @param app_file app 镜像文件名，如 `app-watch-0.1.5.bin`
+ * @param[out] out     图标数据（含 lv_image_header_t）
+ * @param[out] out_size 字节数
+ * @return true = 有这个图标且读取成功
+ */
+bool image_store_read_icon(const char *app_file, uint8_t **out, size_t *out_size);
+
 #ifdef __cplusplus
 }
 #endif

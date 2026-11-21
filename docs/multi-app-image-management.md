@@ -191,6 +191,34 @@ esp_err_t app_settings_set_speaker_volume(int vol);
 - **滑杆只在松手时 commit**，避免拖动过程中频繁写 flash
 - 以后加亮度、自动进上次 app、息屏时间等都在这里扩展，避免每个 app 各存一份
 
+### 4.9 `face_avatar` 共享组件（设备拟人形象 / 表情包）
+
+统一的卡通形象，和字库一样属于**共享资源**，不属于任何 app：素材在
+`storage_src/faces/face-<name>.png`，`pack_storage.ps1` 转成
+`storage:/face-<name>.bin`（192×192 ARGB8888，约 148 KB/张），运行时读进 PSRAM。
+
+```c
+esp_err_t face_avatar_init(void);                                  // 缺 face-idle.bin → ESP_ERR_NOT_FOUND
+const lv_image_dsc_t *face_avatar_get(face_avatar_mood_t mood);    // wait/idle/blink/listen/think/sad/happy
+int  face_avatar_talk_frames(void);                                // face-talk-1..N.bin 的帧数
+const lv_image_dsc_t *face_avatar_talk_frame(int index);
+uint16_t face_avatar_size(void);                                   // 边长（192），用于布局
+```
+
+- 打包时按不透明像素的包围盒裁剪再等比缩放居中：素材构图各不相同，
+  不对齐的话播报换帧时脸会左右跳
+- 10 张约占 `storage` 1.4 MB、PSRAM 1.4 MB；换表情只重打 storage，不动 app 镜像
+- app 拿不到素材时必须回退到自绘界面，不能开天窗
+
+### 4.10 selector 磁贴图标与标题
+
+- 图标源图两种写法：`icon-<id>.png`（输出 88×88，四周留 8% 边，适合线条图标）、
+  `icon-<id>@<px>.png`（输出 `<px>`×`<px>` 满幅 cover，源图自带圆角，用于铺满磁贴）
+- selector 按 `icon-<id>.bin` 头里的 `w/h` **1:1 显示、不做缩放**，所以尺寸完全由打包决定；
+  磁贴是 132×132，`@125` 即四周各留 3.5 px
+- `APP_LOOKS` 里 `title` 写成空串 → 该磁贴不画底部文字，图标垂直居中（有标题时上移 12 px）
+- 图标缺失时回退到"烙印汉字/首字母"，不会留空
+
 ## 5. 关键风险与对策
 
 | 风险 | 说明 | 对策 |

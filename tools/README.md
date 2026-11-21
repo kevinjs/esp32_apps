@@ -5,7 +5,8 @@
 | 脚本 | 用途 |
 | --- | --- |
 | `flash_app.ps1` | 按槽位烧录 app（`ota_0` 或 `factory`/selector），不动 nvs |
-| `pack_storage.ps1` | 收集镜像 → 生成 manifest → `spiffsgen.py` 打包 → 可选烧录 storage |
+| `pack_storage.ps1` | 收集镜像 → 生成 manifest → `spiffsgen.py` 打包 → 可选烧录 storage（图标支持 `icon-<id>@<px>.png` 满幅输出） |
+| `make_app_icon.ps1` | 把透明底卡通形象做成 selector 磁贴图标（256×256 源图）；`-SubjectCover` 头像铺满卡片、`-NoCard` 去掉卡片底只留圆角裁切头像 |
 
 ## 固定偏移
 

@@ -1,12 +1,16 @@
 #include "image_store.h"
 
 #include <dirent.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
+#include "lvgl.h"       /* lv_image_header_t：图标二进制的头 12 字节 */
+
 #include "esp_app_desc.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
 
@@ -124,7 +128,8 @@ int image_store_scan(image_entry_t *out, int max_count)
     int count = 0;
     struct dirent *entry = NULL;
     while ((entry = readdir(dir)) != NULL && count < max_count) {
-        if (!ends_with(entry->d_name, ".bin")) {
+        /* icon-<id>.bin 也是 .bin，但不是 app 镜像，别当坏镜像刷警告 */
+        if (!ends_with(entry->d_name, ".bin") || strncmp(entry->d_name, "app-", 4) != 0) {
             continue;
         }
         image_entry_t parsed = {0};
@@ -161,4 +166,68 @@ void image_store_info(size_t *total_bytes, size_t *used_bytes)
             *used_bytes = used;
         }
     }
+}
+
+/* app-<id>-<ver>.bin -> icon-<id>.bin（版本号以数字开头，从尾部往前找那个 '-'） */
+static bool derive_icon_name(const char *app_file, char *out, size_t out_len)
+{
+    const size_t len = strlen(app_file);
+    if (strncmp(app_file, "app-", 4) != 0 || len < 10) {
+        return false;
+    }
+
+    for (size_t i = len - 4; i > 4; i--) {          /* i = '-' 之后那个字符的下标 */
+        if (app_file[i - 1] == '-' && app_file[i] >= '0' && app_file[i] <= '9') {
+            snprintf(out, out_len, "icon-%.*s.bin", (int)(i - 5), app_file + 4);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool image_store_read_icon(const char *app_file, uint8_t **out, size_t *out_size)
+{
+    if (app_file == NULL || out == NULL || out_size == NULL) {
+        return false;
+    }
+    *out = NULL;
+    *out_size = 0;
+
+    char name[IMAGE_FILE_LEN];
+    if (!derive_icon_name(app_file, name, sizeof(name))) {
+        return false;
+    }
+
+    char path[64];
+    snprintf(path, sizeof(path), "%s/%s", STORAGE_BASE, name);
+
+    struct stat info;
+    if (stat(path, &info) != 0 || info.st_size <= (off_t)sizeof(lv_image_header_t)) {
+        return false;
+    }
+
+    /* 像素数据放 PSRAM：一张 88x88 ARGB8888 约 31 KB，别占内部 RAM */
+    uint8_t *buf = heap_caps_malloc((size_t)info.st_size, MALLOC_CAP_SPIRAM);
+    if (buf == NULL) {
+        ESP_LOGW(TAG, "no PSRAM for %s (%u B)", name, (unsigned)info.st_size);
+        return false;
+    }
+
+    FILE *fp = fopen(path, "rb");
+    if (fp == NULL) {
+        heap_caps_free(buf);
+        return false;
+    }
+    const size_t read_bytes = fread(buf, 1, (size_t)info.st_size, fp);
+    fclose(fp);
+
+    if (read_bytes != (size_t)info.st_size) {
+        ESP_LOGW(TAG, "short read on %s", name);
+        heap_caps_free(buf);
+        return false;
+    }
+
+    *out = buf;
+    *out_size = read_bytes;
+    return true;
 }

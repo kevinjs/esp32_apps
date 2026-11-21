@@ -18,6 +18,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "bsp/esp-bsp.h"
+
+#include "app_settings.h"
 #include "boot_switch.h"
 #include "wifi_config.h"
 
@@ -115,6 +118,12 @@ void app_main(void)
         ESP_LOGE(TAG, "UI start failed, running headless (hold BOOT to return)");
         return;
     }
+
+    /*
+     * 亮度跟随 selector「设置 → 亮度」里存的值：app 每次启动都是全新初始化，
+     * 不在这里套一次，用户调过的亮度进 app 就丢了。
+     */
+    bsp_display_brightness_set(app_settings_get_brightness());
 
     esp_err_t err = boot_key_start();
     if (err != ESP_OK) {

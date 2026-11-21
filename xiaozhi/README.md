@@ -3,7 +3,7 @@
 小智语音助手，直接用 `espressif/esp_xiaozhi` + 板级 BSP 实现，**不依赖 ESP-Brookesia**。
 与 `ride-gmeter` 平级：编译成普通 app 镜像，由 `selector` 装进 `ota_0` 启动，长按 BOOT 3 秒回到选择界面。
 
-当前发布版：**0.1.4**（`storage_src/app-xiaozhi-0.1.4.bin`，sha256 前缀 `f5d044f3ddf6`）。
+当前发布版：**0.1.8**（`storage_src/app-xiaozhi-0.1.8.bin`，2,117,824 B，sha256 前缀 `e76ca2e56305`）。
 版本号只体现在镜像库文件名里，代码里没有版本宏；发新版时同步改这里和 `storage_src/README.md`。
 
 ## 结构
@@ -20,7 +20,7 @@ xiaozhi/
    ├─ xz_wifi.c            # Wi-Fi STA
    ├─ xz_audio.c           # ES7210/ES8311 + Opus 编解码 + 收发任务
    ├─ xz_chat.c            # 会话生命周期，协议事件 -> UI
-   └─ xz_ui.c              # 状态文案 + 可滑动对话区 + 详情 + TALK 按钮
+   └─ xz_ui.c              # 状态文案 + 共享表情包（图片）+ 详情 + TALK 按钮
 ```
 
 ## 配置
@@ -49,13 +49,13 @@ idf.py build
 # 2) 确认没问题再发布：旧版本挪进 _archive（同 id 只能留一份）
 New-Item -ItemType Directory ..\storage_src\_archive -Force | Out-Null
 Move-Item ..\storage_src\app-xiaozhi-<旧版本>.bin ..\storage_src\_archive\ -Force
-Copy-Item build\xiaozhi.bin ..\storage_src\app-xiaozhi-0.1.4.bin -Force
+Copy-Item build\xiaozhi.bin ..\storage_src\app-xiaozhi-0.1.8.bin -Force
 # 3) 重写 21MB 镜像库（约 70s，只动 storage 分区）
 ..\tools\pack_storage.ps1 -Flash
 ```
 
 打包日志里会打印每个 app 的 size 和 sha256 前 12 位，和 `storage_src/README.md`
-的「当前镜像库」表对一遍即可（0.1.4 = 2,113,520 B / `f5d044f3ddf6`）。
+的「当前镜像库」表对一遍即可（0.1.8 = 2,117,824 B / `e76ca2e56305`）。
 
 > **不要用 `idf.py flash`**：它固定把镜像写到 `0x20000`（factory），会**覆盖 selector**。
 > 一旦 selector 被覆盖，长按 BOOT「回 selector」只会回到 factory 里那份旧的 xiaozhi，
@@ -93,11 +93,46 @@ Copy-Item build\xiaozhi.bin ..\storage_src\app-xiaozhi-0.1.4.bin -Force
 **关键点**：`manual` 模式下服务端不做 VAD，**必须**收到 `listen stop` 才开始识别；
 只发 `start` 会一直收音频但永远没有结果，约 60 秒后服务端回 `goodbye`。
 
-### 对话历史
+### 背景
 
-界面中部是一个**可上下滑动的对话区**（`xz_ui_add_message()`）：
-`我`（蓝）/ `小智`（绿）前缀 + 正文，保留最近 12 条，超出自动删最旧；
-追加后自动滚到最新一条，手指上下拖即可回看。历史只存在 RAM，重启清空。
+整屏背景用共享组件 `components/ui_bg` 铺 **selector 同款 30° 斜向渐变**
+（`#07070E` 顶部近黑 → `#1A1230` 右下暗紫）：466×466 RGB565 在 PSRAM 里只生成
+一次（434 KB），与 selector、watch 视觉完全一致。生成失败（PSRAM 不足）时退化为
+深色纯色，不会白屏。
+
+表情是透明背景的 PNG，直接叠在渐变上，不需要额外的底板或描边。
+
+### 表情（设备统一的拟人形象）
+
+界面中部是一张**会动的卡通脸**，素材是全设备共用的表情包，放在 `storage` 分区
+（`face-*.bin`，192×192 ARGB8888），由共享组件 `components/face_avatar` 读进 PSRAM。
+素材规格与打包流程见 [`../storage_src/faces/README.md`](../storage_src/faces/README.md)。
+
+| 会话状态 | 表情 | 动效 |
+| --- | --- | --- |
+| `BOOTING`/`WIFI`/`AUDIO`/`LINK`/`CONNECTING`/`CONNECTED` | `face-wait` 等待脸 | 透明度呼吸（80%↔100%） |
+| `IDLE` | `face-idle` 微笑 | 呼吸 + 每 3~6 s 眨一次眼 |
+| `LISTENING` | `face-listen` 惊讶听 | 呼吸 |
+| `THINKING` | `face-think` 思考 | 呼吸 |
+| `SPEAKING` | `face-talk-1..3` 口型循环 | 200 ms 换一帧，常亮不叠动效 |
+| `DISCONNECTED`/`NO WIFI`/`ERROR`/`SERVER ERROR` | `face-sad` 沮丧 | 呼吸 |
+
+**为什么呼吸用透明度而不是缩放**：`transform_scale` 要实时重采样，LVGL 会给
+192×192 的图申请约 74 KB 中间缓冲且落在**内部 RAM**，实测把 `dma_max` 从
+137 KB 压到 31 KB（刷屏中转缓冲只要 46 KB 就见底，久了残影/停更）。
+改成 `LV_OPA` 后在目标缓冲上逐像素混合，不额外占内存：`internal` 72 KB → 111 KB。
+
+`xz_ui_add_message()` 保留接口但**不上屏**，识别/播报文本只进串口日志。
+
+**为什么不上文字**：中文正文由 tiny_ttf 渲染，每遇到一个新汉字就缓存一份字形位图
+（上限 `CONFIG_LV_TINY_TTF_CACHE_GLYPH_CNT`=512），十几轮就能把内部 RAM 吃干；
+随后 `esp-aes` 连 200 字节的解密 DMA 缓冲都申请不到，会话永久卡在 thinking→idle。
+表情方案只渲染固定文案，字形数量有界。
+
+**回退**：`face_avatar_init()` 失败（storage 没刷、`face-idle.bin` 缺失）时，
+界面自动退到 `xz_ui.c` 里那套 `lv_obj` 几何简笔脸，启动日志会打
+`shared avatar unavailable, using built-in face`。换表情只需重打 storage，
+**不用重编这个 app**。
 
 ### 卡在「识别中」的两道兜底
 
@@ -137,6 +172,7 @@ SPI2 DMA 访问不了 PSRAM。内部 RAM 一旦被别的模块吃光，表现是
 | PCM 缓冲 | 用 `heap_caps_malloc(MALLOC_CAP_INTERNAL\|MALLOC_CAP_8BIT)` 显式放内部 RAM，不能跟着栈落在 PSRAM（I2S DMA 读不到 PSRAM，会出现 `peak 32768` 尖峰/杂音） |
 | 内部 RAM 预留 | `CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536`（默认 32 KB 不够） |
 | 启动打点 | `main.c` 的 `log_heap()` 在 start/audio/chat 三处打印 `internal/dma/psram` |
+| 共享资源 | 字库 ~2 MB + 表情包 ~1.4 MB（10 张 192² ARGB8888）+ 背景渐变 434 KB，都在 PSRAM，不吃内部 RAM |
 
 启动基线（正常值）：`internal≈145 KB dma≈137 KB`，单次刷屏需要 46 KB。
 
@@ -180,6 +216,10 @@ powershell -File d:\code\esp32_learning\tmp\serial_mon.ps1 -Port COM3 -Seconds 1
 | 日志 | 含义 |
 | --- | --- |
 | `[heap] chat internal=.. dma=.. psram=..` | 各阶段内部/DMA/PSRAM 余量 |
+| `[heap] run internal=.. dma_max=..` | 每 5 s 一行常驻打点；`dma_max` 见底就解不出音频包，会话接不上 |
+| `[heap] rx N int=.. dma=.. psram=..` | 每收到一个音频包打一行 |
+| `face_avatar: avatar ready: 192x192` | 共享表情包加载成功；跟着的 `talk frames: 3` 是播报帧数 |
+| `xz.ui: shared avatar unavailable, using built-in face` | storage 里没有 `face-idle.bin`，界面退回几何简笔脸 |
 | `xz.audio: mic tx 34 frames / 2038ms, peak N` | 每 2 s 一帧计数 + 麦克风峰值；静音 <100，说话 400~1500，`32768` 说明缓冲/增益有问题 |
 | `xz.chat: talk start` / `talk stop, waiting for stt` | manual 模式的上行起点/终点 |
 | `xz.chat: user: ...` / `assistant: ...` | 服务端 stt / llm 文本 |
@@ -196,7 +236,7 @@ powershell -File d:\code\esp32_learning\tmp\serial_mon.ps1 -Port COM3 -Seconds 1
   `cjk_font: /storage/font-cjk.ttf not found`
 - `THINKING` 最长等 8 s（`xz_chat.c` 的 `THINK_TIMEOUT_MS`）就回 `IDLE`，期间可点「取消」主动退出；
   真正等到服务端 60 s `goodbye` 的情况已经不会出现了
-- 对话历史只在 RAM（12 条），重启清空，没有落盘
+- 对话内容**不上屏**（只有表情），识别/播报文本只能在串口日志里看
 - 没有唤醒词（ESP-SR WakeNet 需要额外 `model` 分区，见方案 B）
 - 没有 AEC，播放时靠半双工规避回声
 - 设备端 MCP 只创建了空 engine（`esp_mcp_create`），未注册任何工具
@@ -204,6 +244,40 @@ powershell -File d:\code\esp32_learning\tmp\serial_mon.ps1 -Port COM3 -Seconds 1
 - BOOT 短按未绑定（避免与 `boot_switch` 的长按检测抢同一个 GPIO）
 
 ## 变更记录
+
+**2026-11-21（发布 0.1.8）**
+- 背景从纯黑换成 **selector 同款 30° 斜向渐变**：直接用共享组件 `ui_bg`，
+  466×466 RGB565 一张图铺 `bg_image`（434 KB PSRAM），与 selector / watch 一致
+- 表情素材本身是透明底，直接叠在渐变上，不需要底板或描边
+- 固件 2,117,824 B；PSRAM 余量 3.33 MB → 2.89 MB，内部 RAM 不变（110 KB）
+- 发布件 `storage_src/app-xiaozhi-0.1.8.bin`（sha256 `e76ca2e56305…`），
+  0.1.7 归档到 `_archive/`
+
+**2026-11-21（发布 0.1.7）**
+- 表情换成**设备统一的拟人形象**：素材在 `storage_src/faces/`（10 张 PNG），
+  打包成 `storage:/face-*.bin`（192×192 ARGB8888，1.4 MB），由新增的共享组件
+  `components/face_avatar` 读进 PSRAM，selector 与其他 app 也能直接用
+- `xz_ui.c` 改用图片表情：播报 3 帧轮播（200 ms/帧）、待命随机眨眼（3~6 s）、
+  静态状态透明度呼吸；素材缺失时自动回退到原来的几何简笔脸
+- `tools/pack_storage.ps1` 新增 `faces/face-*.png → face-*.bin`：按不透明包围盒
+  裁剪 + 等比缩放居中（素材 363~397 见方、构图各异，不裁对齐换帧时脸会跳）
+- 修内存：呼吸动画初版用 `transform_scale`，LVGL 为 192² 图申请约 74 KB 中间缓冲
+  （内部 RAM），实测 `[heap] run internal` 111 KB → 72 KB、`dma_max` 40 KB → 31 KB，
+  低于刷屏所需的 46 KB 连续块；改用 `LV_OPA` 后 internal 回到 111 KB
+- 固件 2,117,184 B（+2.4 KB），仍走 `ota_0`
+- 发布件 `storage_src/app-xiaozhi-0.1.7.bin`（sha256 `1d9b5f43eeca…`）；
+  0.1.5 与过渡版 0.1.6（带缩放呼吸的那次构建）归档到 `_archive/`
+
+**2026-11-21（发布 0.1.5）**
+- 界面中部“可滑动对话文字稿”换成**会动的表情脸**：眨眼 + 呼吸缩放 + 嘴型随状态变
+  （等 / 待命 / 听 / 想 / 说 / 出错），纯 `lv_obj` 绘制，不加载图片
+- 修多轮对话后会话卡死：中文正文每轮都给 tiny_ttf 新增字形缓存（512 上限），
+  吃干内部 RAM 后 `esp-aes` 分配解密 DMA 缓冲失败；现在只渲染固定文案，字形数量有界
+- 内存可观测性：`xz_chat.c` 每收到一个音频包打 `[heap] rx N int/dma/psram`；
+  `main.c` 新增 `heap_monitor_task`，每 5 s 打一行 `[heap] run ...`
+  （含 `dma_max` 最大连续块，区分“内存见底”与“只是碎片化”）
+- 发布件 `storage_src/app-xiaozhi-0.1.5.bin`（2,114,816 B，sha256 `47cd055fc0de…`），
+  0.1.4 归档到 `_archive/`
 
 **2026-11-20（发布 0.1.4）**
 - 扬声器音量改由 selector 设置页统一管理：启动时读 `components/app_settings`
