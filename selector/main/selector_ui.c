@@ -56,6 +56,7 @@ typedef struct {
 static const app_look_t APP_LOOKS[] = {
     { "watch",   "怀表", "表", 0x2F6BFF },
     { "gmeter",  "骑行", "骑", 0x18A56B },
+    { "music",   "音乐", "乐", 0xD9A441 },
     /* title 为空串 = 图标本身就能说明白（笑脸头像），磁贴不再画文字 */
     { "xiaozhi", "",     "智", 0x7C5CFF },
 };

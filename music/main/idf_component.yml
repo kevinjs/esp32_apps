@@ -1,0 +1,8 @@
+dependencies:
+  idf: ">=5.5"
+
+  # 板级支持包：I2C(15/14)、显示 CO5300 466x466、触摸 CST9217、音频 ES8311+ES7210
+  waveshare/esp32_s3_touch_amoled_1_75c: "^3.0.0"
+
+  # WAV/MP3/AAC 等容器解析 + 解码（esp_audio_simple_dec）
+  espressif/esp_audio_codec: "^2.5.0"

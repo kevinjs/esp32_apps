@@ -9,11 +9,12 @@
         ├── icon-<id>.png              （可选，源图；打包时转成 icon-<id>.bin，88x88 四周留边）
         ├── icon-<id>@<px>.png         （可选，满幅图标；如 @132 = 铺满 132px 磁贴）
         ├── font-*.ttf                 （共享字库，原样进镜像）
+        ├── music-*.wav                （共享音频素材，原样进镜像；app 从 storage 读）
         ├── faces/face-<name>.png      （表情包源图，打包时转成 face-<name>.bin，不进镜像）
         └── manifest.json              （本脚本生成）
 
     脚本会：
-      1. 收集 app-*.bin / icon-*.png / font-*.ttf / faces/face-*.png，校验文件名长度
+      1. 收集 app-*.bin / icon-*.png / font-*.ttf / music-*.wav / faces/face-*.png，校验文件名长度
       2. 计算 sha256、把 PNG 图标转成 LVGL 二进制（88x88 ARGB8888，约 31 KB）
       3. 把 faces/ 下的表情素材转成 face-<name>.bin（192x192 ARGB8888，约 148 KB/张）
       4. 生成 manifest.json，复制到临时目录（避免把 README 之类打进镜像）
@@ -162,15 +163,24 @@ if ($entries.Count -eq 0) {
     Write-Warning "目录里没有 app-*.bin，生成的镜像库是空的"
 }
 
-# ---- 共享资源（字库等，不属于任何 app） -------------------------------------
+# ---- 共享资源（字库 / 音频素材，不属于任何 app） -----------------------------
 # font-cjk.ttf 由 components/cjk_font 在运行时从 storage 读取，selector
 # 与所有 app 共用一份，因此不能打进各自的镜像里。
+# music-*.wav 是 music app 的音频素材：素材属于数据，放镜像库，
+# 换歌只重打 storage，不用重编 app（文件名同样受 SPIFFS 31 字符限制）。
 $extras = @()
-foreach ($extra in (Get-ChildItem -LiteralPath $SourceDir -Filter "font-*.ttf" -File -ErrorAction SilentlyContinue)) {
-    if ($extra.Name.Length -gt 31) {
-        throw ("文件名过长（{0} 字符，上限 31）: {1}" -f $extra.Name.Length, $extra.Name)
+foreach ($pattern in @("font-*.ttf", "music-*.wav")) {
+    foreach ($extra in (Get-ChildItem -LiteralPath $SourceDir -Filter $pattern -File -ErrorAction SilentlyContinue)) {
+        if ($extra.Name.Length -gt 31) {
+            throw ("文件名过长（{0} 字符，上限 31）: {1}" -f $extra.Name.Length, $extra.Name)
+        }
+        $extras += [pscustomobject]@{
+            Name   = $extra.Name
+            Path   = $extra.FullName
+            Size   = $extra.Length
+            Sha256 = (Get-FileHash -LiteralPath $extra.FullName -Algorithm SHA256).Hash.ToLower()
+        }
     }
-    $extras += $extra
 }
 
 $duplicated = $entries | Group-Object id | Where-Object { $_.Count -gt 1 }
@@ -384,8 +394,8 @@ foreach ($entry in $entries) {
 }
 
 foreach ($extra in $extras) {
-    Copy-Item -LiteralPath $extra.FullName -Destination $stage
-    Write-Host ("  共享资源 {0} {1,10:N0} B" -f $extra.Name, $extra.Length)
+    Copy-Item -LiteralPath $extra.Path -Destination $stage
+    Write-Host ("  共享资源 {0} {1,10:N0} B" -f $extra.Name, $extra.Size)
 }
 
 # ---- 表情包（公共资源）：faces/face-*.png → face-*.bin ----------------------
@@ -420,7 +430,9 @@ $manifest = [pscustomobject]@{
     generated       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     # iconPng 只是打包时的中间信息，不写进 manifest
     apps            = @($entries | Select-Object id, name, version, bin, size, sha256, icon)
-    # 表情包是共享资源（不属于某个 app），单独列出来方便排查
+    # 字库 / 音频素材是共享资源（不属于某个 app）
+    resources       = @($extras | Select-Object name, size, sha256)
+    # 表情包也是共享资源，单独列出来方便排查
     faces           = @($faceEntries | Select-Object name, bin, size, sha256)
 }
 $manifestPath = Join-Path $stage "manifest.json"

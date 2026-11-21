@@ -338,3 +338,28 @@ xiaozhi（原生 ESP-IDF 版小智语音助手）成为镜像库里的第二个 
 中间缓冲且落在**内部 RAM**，`[heap] run internal` 从 111 KB 掉到 72 KB、`dma_max` 从
 40 KB 掉到 31 KB（低于刷屏所需的 46 KB 连续块）。改用 `LV_OPA` 透明度呼吸后恢复。
 **图片对象不要做缩放变换**，用透明度或换帧表达动效。
+
+### 9.9 音频 app 与共享音频素材（music 0.1.0，2026-11-21）
+
+music（48 kHz WAV 播放器）是镜像库里的第 4 个 app，第一次把**音频数据**放进
+storage，验证了「素材与固件分离」这条约定：
+
+| 环节 | 做法 |
+| --- | --- |
+| 素材 | `storage_src/music-test48k.wav`（768,044 B，48 kHz/16 bit/单声道/8 s），由 `music/tools/gen_test_assets.py` 生成 |
+| 打包 | `pack_storage.ps1` 新增 `music-*.wav` 收集，写进 manifest 的 `resources`（和 `font-*.ttf` 同级） |
+| 播放 | app 扫 `/storage/music-*.wav` 取第一首，`esp_audio_simple_dec` 解 WAV，PCM 走 `esp_codec_dev_write` → ES8311 |
+| 发布 | `app-music-0.1.0.bin` 918,496 B / sha256 `dd2a860196ca…`；manifest 记 4 个 app、2 页磁贴 |
+| 上机 | 连续循环 5 轮，`peak` 17k~18k，内部 RAM 261 KB、`dma_max` 139 KB，无重启 |
+
+踩坑（都写进了 `music/README.md`）：
+
+- **simple decoder 不自动注册**：必须先 `esp_audio_dec_register_default()` +
+  `esp_audio_simple_dec_register_default()`，否则 `check_audio_type(WAV)` 返回 `NOT_SUPPORT`
+- **`esp_audio_simple_dec_reset()` 不能用来循环播放**：WAV 解析器 reset 后不再重新解析
+  RIFF 头，数据被静默吃掉；文件瞬间读完 → 忙循环 → 任务看门狗把设备踢回 selector
+  （表现为 `boot: Loaded app from partition at offset 0x20000`，看起来像"自己回滚了"）。
+  现在每轮 `close` + `open`
+- **解码器要裁剪**：`CONFIG_AUDIO_*_SUPPORT` 默认全开，整库链进去 +0.5 MB；
+  只留 WAV/PCM/G711/ADPCM 后固件回到 918 KB
+- I2S DMA 读不到 PSRAM：解码后的 PCM 放内部 RAM，读文件缓冲放 PSRAM（与 xiaozhi 相同）
